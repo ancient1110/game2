@@ -133,11 +133,40 @@ function pickMode(sectionIdx) {
   return modes[sectionIdx % modes.length];
 }
 
-function pushIfGap(list, note, nextAvailableRef) {
-  if (note.time < nextAvailableRef.v) return;
+function laneFreeAt(lane, t, laneNextFree, laneHolds, headGap = 0.11) {
+  if (t < laneNextFree[lane]) return false;
+  return !laneHolds[lane].some((h) => t >= h.time - headGap && t <= h.endTime + headGap);
+}
+
+function pushLaneNote(list, note, laneNextFree, laneHolds) {
+  const lane = note.lane;
+  const gap = note.type === 'flick' ? 0.11 : 0.09;
+  if (!laneFreeAt(lane, note.time, laneNextFree, laneHolds, gap)) return false;
+
   list.push(note);
-  if (note.type === 'hold') nextAvailableRef.v = note.endTime + 0.06;
-  else nextAvailableRef.v = note.time + 0.045;
+  if (note.type === 'hold') {
+    laneNextFree[lane] = note.endTime + 0.11;
+    laneHolds[lane].push({ time: note.time, endTime: note.endTime });
+  } else {
+    laneNextFree[lane] = Math.max(laneNextFree[lane], note.time + gap);
+  }
+  return true;
+}
+
+function injectCrossLaneDuringHold(chart, hold, laneNextFree, laneHolds, beat, diffKey, idx) {
+  const others = [0, 1, 2].filter((x) => x !== hold.lane);
+  const step = Math.max(beat * (diffKey === 'hard' ? 0.55 : 0.72), 0.22);
+  let t = hold.time + step;
+  let c = 0;
+  while (t < hold.endTime - 0.16 && c < (diffKey === 'hard' ? 6 : 3)) {
+    const lane = others[c % others.length];
+    pushLaneNote(chart, { id: `hx${idx}_${c}`, time: t, lane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds);
+    if (diffKey === 'hard' && c % 2 === 1 && Math.random() < 0.42) {
+      pushLaneNote(chart, { id: `hf${idx}_${c}`, time: t + 0.09, lane, type: 'flick', tapsNeeded: 2, tapsDone: 0, firstTapAt: null, flickWindow: 0.22, judged: false, missed: false }, laneNextFree, laneHolds);
+    }
+    t += step;
+    c += 1;
+  }
 }
 
 function buildChart(peaks, duration, diffKey) {
@@ -152,61 +181,52 @@ function buildChart(peaks, duration, diffKey) {
   for (let t = intro; t <= safeEnd; t += beat / cfg.beatSnap) timeline.push(t);
 
   const chart = [];
-  const nextAvailable = { v: -1 };
+  const laneNextFree = [-1, -1, -1];
+  const laneHolds = [[], [], []];
 
   timeline.forEach((t, i) => {
     const section = Math.floor(i / 24);
     const mode = pickMode(section);
 
-    // 把“音乐性”映射到轨道语义：
     // F(0)=低频主拍，J(1)=中频主旋，K(2)=高频切分/点缀
     const strong = i % 4 === 0;
 
     if (mode === 'groove') {
-      if (strong) pushIfGap(chart, { id: `n${i}`, time: t, lane: 0, type: 'tap', judged: false, missed: false }, nextAvailable);
-      else if (i % 2 === 0) pushIfGap(chart, { id: `n${i}`, time: t, lane: 1, type: 'tap', judged: false, missed: false }, nextAvailable);
-      else if (Math.random() < 0.22) pushIfGap(chart, { id: `n${i}`, time: t, lane: 2, type: 'tap', judged: false, missed: false }, nextAvailable);
+      if (strong) pushLaneNote(chart, { id: `n${i}`, time: t, lane: 0, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds);
+      else if (i % 2 === 0) pushLaneNote(chart, { id: `n${i}`, time: t, lane: 1, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds);
+      else if (Math.random() < 0.28) pushLaneNote(chart, { id: `n${i}`, time: t, lane: 2, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds);
       return;
     }
 
     if (mode === 'call') {
       const lane = (Math.floor(i / 2) % 2 === 0) ? 0 : 1;
-      pushIfGap(chart, { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false }, nextAvailable);
-      if (i % 8 === 7 && Math.random() < 0.55) {
-        pushIfGap(chart, { id: `f${i}`, time: t + beat * 0.35, lane: 2, type: 'flick', tapsNeeded: 2, tapsDone: 0, firstTapAt: null, flickWindow: 0.22, judged: false, missed: false }, nextAvailable);
+      pushLaneNote(chart, { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds);
+      if (i % 8 === 7 && Math.random() < 0.65) {
+        pushLaneNote(chart, { id: `f${i}`, time: t + beat * 0.35, lane: 2, type: 'flick', tapsNeeded: 2, tapsDone: 0, firstTapAt: null, flickWindow: 0.22, judged: false, missed: false }, laneNextFree, laneHolds);
       }
       return;
     }
 
     if (mode === 'sync') {
-      if (Math.random() < (diffKey === 'hard' ? 0.75 : 0.55)) {
-        const lane = (i % 3);
-        pushIfGap(chart, { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false }, nextAvailable);
+      if (Math.random() < (diffKey === 'hard' ? 0.9 : 0.66)) {
+        pushLaneNote(chart, { id: `n${i}`, time: t, lane: i % 3, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds);
       }
-      if (diffKey !== 'easy' && i % 6 === 0 && Math.random() < 0.45) {
-        pushIfGap(chart, { id: `c${i}`, time: t + beat * 0.25, lane: 2, type: 'tap', judged: false, missed: false }, nextAvailable);
+      if (diffKey !== 'easy' && i % 6 === 0 && Math.random() < 0.58) {
+        pushLaneNote(chart, { id: `c${i}`, time: t + beat * 0.25, lane: 2, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds);
       }
       return;
     }
 
-    // hold 模式：长按主导，但也允许其它轨道在长按后半段出键
     if (Math.random() < cfg.holdChance) {
       const lane = [0, 1, 2][i % 3];
       const holdLen = rand(diffKey === 'hard' ? 1.0 : 1.2, diffKey === 'hard' ? 4.2 : 3.8);
       const hold = { id: `h${i}`, time: t, lane, type: 'hold', endTime: Math.min(t + holdLen, safeEnd - 0.2), judged: false, missed: false, started: false };
-      pushIfGap(chart, hold, nextAvailable);
-
-      if (diffKey !== 'easy') {
-        const alt = [0, 1, 2].filter((x) => x !== lane);
-        const t1 = t + holdLen * 0.5;
-        const t2 = t + holdLen * 0.78;
-        if (t1 < hold.endTime - 0.15) pushIfGap(chart, { id: `ha${i}`, time: t1, lane: alt[0], type: 'tap', judged: false, missed: false }, nextAvailable);
-        if (diffKey === 'hard' && t2 < hold.endTime - 0.12) pushIfGap(chart, { id: `hb${i}`, time: t2, lane: alt[1], type: 'tap', judged: false, missed: false }, nextAvailable);
-      }
+      const placed = pushLaneNote(chart, hold, laneNextFree, laneHolds);
+      if (placed && diffKey !== 'easy') injectCrossLaneDuringHold(chart, hold, laneNextFree, laneHolds, beat, diffKey, i);
       return;
     }
 
-    pushIfGap(chart, { id: `n${i}`, time: t, lane: i % 3, type: 'tap', judged: false, missed: false }, nextAvailable);
+    pushLaneNote(chart, { id: `n${i}`, time: t, lane: i % 3, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds);
   });
 
   chart.sort((a, b) => a.time - b.time);
