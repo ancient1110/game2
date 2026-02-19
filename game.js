@@ -19,7 +19,6 @@ const resultScore = $('resultScore');
 const resultRate = $('resultRate');
 const resultCombo = $('resultCombo');
 const closeResult = $('closeResult');
-const pauseBtn = $('pauseBtn');
 
 const laneX = [250, 500, 750];
 const laneWidth = 170;
@@ -411,18 +410,30 @@ function drawNotes(now) {
   for (const n of notes) {
     if (n.judged && n.missed) continue;
     const y = yFor(n.time, now);
-    if (y < -70 || y > canvas.height + 90) continue;
     const x = laneX[n.lane];
     const color = n.type === 'hold' ? '#4dff88' : n.type === 'flick' ? '#ffaf45' : '#5cb3ff';
+
     if (n.type === 'hold') {
       const y2 = yFor(n.endTime, now);
+      const top = Math.min(y, y2);
+      const bottom = Math.max(y, y2);
+      if (bottom < -80 || top > canvas.height + 90) continue;
       ctx.strokeStyle = '#58ff9c';
       ctx.lineWidth = 12;
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.lineTo(x, y2);
       ctx.stroke();
+      if (y >= -70 && y <= canvas.height + 90) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, 22, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      continue;
     }
+
+    if (y < -70 || y > canvas.height + 90) continue;
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(x, y, 22, 0, Math.PI * 2);
@@ -436,7 +447,28 @@ function drawNotes(now) {
   }
 }
 
+
+function stopPlaybackForReanalyze() {
+  if (source) {
+    try { source.stop(); } catch {}
+    source.disconnect();
+    source = null;
+  }
+  state.playing = false;
+  state.paused = false;
+  state.activeHolds.clear();
+  state.pressed.clear();
+  laneFx = [null, null, null];
+  laneBursts = [[], [], []];
+  comboText.textContent = '0';
+  scoreText.textContent = '0';
+  judgeText.textContent = '--';
+  scoreRateText.textContent = '0%';
+  stateText.textContent = '待开始';
+}
+
 function analyzeCurrentTrack() {
+  stopPlaybackForReanalyze();
   if (!audioBuffer) {
     analysisText.textContent = '请先加载音乐。';
     return;
@@ -479,7 +511,6 @@ function frame() {
 analyzeBtn.addEventListener('click', analyzeCurrentTrack);
 startBtn.addEventListener('click', startGame);
 closeResult.addEventListener('click', () => resultOverlay.classList.add('hidden'));
-pauseBtn.addEventListener('click', togglePause);
 difficultySelect.addEventListener('change', () => {
   const cfg = diffCfg[difficultySelect.value] || diffCfg.normal;
   travelMs = cfg.travelMs;
