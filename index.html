@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Overpass Groove Lab</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -10,11 +10,11 @@
     <main class="app">
       <header>
         <h1>Overpass Groove Lab</h1>
-        <p>自动拆谱 · 局部判定特效 · 可暂停（空格）</p>
+        <p>自动拆谱 · 触屏可玩 · 评级结算</p>
       </header>
 
       <section class="panel">
-        <div class="row">
+        <div class="row controls">
           <label class="file-picker">
             <span>音频文件</span>
             <input id="audioFile" type="file" accept="audio/*" />
@@ -38,24 +38,38 @@
           <div>得分率：<strong id="scoreRate">0%</strong></div>
           <div>状态：<strong id="stateText">待机</strong></div>
         </div>
-
-        <div class="row hint">
-          <p>
-            键位：<kbd>F</kbd> 左 / <kbd>J</kbd> 中 / <kbd>K</kbd> 右 / <kbd>Space</kbd> 暂停-继续。<br />
-            <span class="perfect">完美</span> <span class="great">很好</span> <span class="good">凑合</span> <span class="miss">错过</span>
-          </p>
-        </div>
       </section>
 
-      <section class="game-wrap">
-        <canvas id="game" width="1000" height="560"></canvas>
+      <section class="game-wrap" id="gameWrap">
+        <aside class="streak left" id="leftStreak"></aside>
+        <canvas id="game" width="1000" height="540"></canvas>
+        <aside class="streak right" id="rightStreak"></aside>
+      </section>
+
+      <section class="touch-pad" id="touchPad">
+        <button class="touch-key" data-lane="0">F</button>
+        <button class="touch-key" data-lane="1">J</button>
+        <button class="touch-key" data-lane="2">K</button>
+        <button class="touch-key pause" id="pauseBtn">⏯</button>
       </section>
 
       <section class="analysis">
-        <h2>拆谱结果</h2>
         <pre id="analysisText">请先载入音频，然后分析节奏。</pre>
       </section>
     </main>
+
+    <div id="resultOverlay" class="result-overlay hidden">
+      <div class="result-card">
+        <h2 id="resultRank">A</h2>
+        <p id="resultDesc">Great Groove</p>
+        <div class="result-grid">
+          <div>总分 <strong id="resultScore">0</strong></div>
+          <div>得分率 <strong id="resultRate">0%</strong></div>
+          <div>最大连击 <strong id="resultCombo">0</strong></div>
+        </div>
+        <button id="closeResult">关闭</button>
+      </div>
+    </div>
 
     <script src="game.js"></script>
   </body>
