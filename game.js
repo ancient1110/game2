@@ -38,8 +38,8 @@ const SCORE = { perfect: 1000, great: 700, good: 350, miss: -400 };
 
 const diffCfg = {
   easy: { keep: 0.3, holdRate: 0.34, flickRate: 0.09, chordRate: 0.01, intro: 5.4, travelMs: 2100, judge: { perfect: 95, great: 165, good: 240 }, maxGap: 1.7, holdLen: [1.1, 4.2] },
-  normal: { keep: 0.52, holdRate: 0.4, flickRate: 0.16, chordRate: 0.05, intro: 4.0, travelMs: 1850, judge: { perfect: 72, great: 122, good: 185 }, maxGap: 1.3, holdLen: [0.9, 3.8] },
-  hard: { keep: 0.68, holdRate: 0.46, flickRate: 0.24, chordRate: 0.09, intro: 2.6, travelMs: 1600, judge: { perfect: 55, great: 95, good: 145 }, maxGap: 0.95, holdLen: [0.7, 3.5] },
+  normal: { keep: 0.62, holdRate: 0.42, flickRate: 0.2, chordRate: 0.09, intro: 3.8, travelMs: 1780, judge: { perfect: 70, great: 118, good: 178 }, maxGap: 1.05, holdLen: [0.8, 3.8] },
+  hard: { keep: 0.86, holdRate: 0.5, flickRate: 0.32, chordRate: 0.18, intro: 2.2, travelMs: 1500, judge: { perfect: 52, great: 90, good: 138 }, maxGap: 0.72, holdLen: [0.7, 3.8] },
 };
 
 const state = {
@@ -90,8 +90,8 @@ function fillGaps(times, maxGap, start, end) {
   return out.filter((t) => t >= start && t <= end);
 }
 
-function overlapsAnyHold(candidateTime, holds) {
-  return holds.some((h) => candidateTime >= h.time - 0.08 && candidateTime <= h.endTime + 0.08);
+function overlapsAnyHold(candidateTime, lane, holds) {
+  return holds.some((h) => h.lane === lane && candidateTime >= h.time - 0.08 && candidateTime <= h.endTime + 0.08);
 }
 
 
@@ -139,13 +139,24 @@ function analyzeBuffer(buffer, diffKey) {
 
   times.forEach((t, i) => {
     const lane = i % 3;
-    if (overlapsAnyHold(t, holdBlocks)) return;
+    if (overlapsAnyHold(t, lane, holdBlocks)) return;
 
     const base = { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false, started: false };
     if (Math.random() < cfg.holdRate) {
       const hold = { ...base, type: 'hold', endTime: t + pickHoldDuration(cfg) };
       chart.push(hold);
       holdBlocks.push(hold);
+      if (diffKey === 'hard') {
+        const altLanes = [0, 1, 2].filter((x) => x !== lane);
+        const tA = t + 0.32;
+        const tB = t + 0.68;
+        if (tA < hold.endTime - 0.18 && !overlapsAnyHold(tA, altLanes[0], holdBlocks)) {
+          chart.push({ ...base, id: `ha${i}`, lane: altLanes[0], type: 'tap', time: tA });
+        }
+        if (tB < hold.endTime - 0.16 && !overlapsAnyHold(tB, altLanes[1], holdBlocks) && Math.random() < 0.75) {
+          chart.push({ ...base, id: `hb${i}`, lane: altLanes[1], type: 'tap', time: tB });
+        }
+      }
       return;
     }
 
@@ -156,7 +167,7 @@ function analyzeBuffer(buffer, diffKey) {
 
     if (Math.random() < cfg.chordRate) {
       const t2 = t + 0.02;
-      if (!overlapsAnyHold(t2, holdBlocks)) {
+      if (!overlapsAnyHold(t2, 0, holdBlocks) && !overlapsAnyHold(t2, 2, holdBlocks)) {
         chart.push({ ...base, lane: 0, type: 'tap' });
         chart.push({ ...base, id: `c${i}`, lane: 2, type: 'tap', time: t2 });
         return;
@@ -495,7 +506,7 @@ function analyzeCurrentTrack() {
   judgeWindows = result.cfg.judge;
   state.maxScore = notes.reduce((s, n) => s + (n.type === 'hold' ? SCORE.perfect * 2 : SCORE.perfect), 0);
   const count = notes.reduce((a, n) => ((a[n.type] = (a[n.type] || 0) + 1), a), {});
-  analysisText.textContent = `难度: ${diff}\n峰值: ${result.peaks}\n音符: ${notes.length}\nTap/Hold/Flick = ${count.tap || 0}/${count.hold || 0}/${count.flick || 0}\n前奏: ${result.intro.toFixed(1)}s\n长按时长: ${result.cfg.holdLen[0]}-${result.cfg.holdLen[1]}s（复杂分布，避免重叠）`;
+  analysisText.textContent = `难度: ${diff}\n峰值: ${result.peaks}\n音符: ${notes.length}\n密度参数 keep/maxGap: ${result.cfg.keep}/${result.cfg.maxGap}\nTap/Hold/Flick = ${count.tap || 0}/${count.hold || 0}/${count.flick || 0}\n前奏: ${result.intro.toFixed(1)}s\n长按时长: ${result.cfg.holdLen[0]}-${result.cfg.holdLen[1]}s（复杂分布，避免重叠）`;
   stateText.textContent = '待开始';
 }
 
