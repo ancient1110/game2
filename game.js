@@ -19,6 +19,8 @@ const resultScore = $('resultScore');
 const resultRate = $('resultRate');
 const resultCombo = $('resultCombo');
 const closeResult = $('closeResult');
+const progressFill = $('progressFill');
+const progressText = $('progressText');
 
 const laneX = [250, 500, 750];
 const laneWidth = 170;
@@ -35,9 +37,9 @@ let judgeWindows = { perfect: 72, great: 122, good: 185 };
 const SCORE = { perfect: 1000, great: 700, good: 350, miss: -400 };
 
 const diffCfg = {
-  easy: { keep: 0.3, holdRate: 0.34, flickRate: 0.03, chordRate: 0.01, intro: 5.4, travelMs: 2100, judge: { perfect: 95, great: 165, good: 240 }, maxGap: 1.7, holdLen: [1.6, 3.6] },
-  normal: { keep: 0.52, holdRate: 0.4, flickRate: 0.07, chordRate: 0.05, intro: 4.0, travelMs: 1850, judge: { perfect: 72, great: 122, good: 185 }, maxGap: 1.3, holdLen: [1.4, 3.2] },
-  hard: { keep: 0.68, holdRate: 0.46, flickRate: 0.13, chordRate: 0.09, intro: 2.6, travelMs: 1600, judge: { perfect: 55, great: 95, good: 145 }, maxGap: 0.95, holdLen: [1.2, 2.8] },
+  easy: { keep: 0.3, holdRate: 0.34, flickRate: 0.09, chordRate: 0.01, intro: 5.4, travelMs: 2100, judge: { perfect: 95, great: 165, good: 240 }, maxGap: 1.7, holdLen: [1.1, 4.2] },
+  normal: { keep: 0.52, holdRate: 0.4, flickRate: 0.16, chordRate: 0.05, intro: 4.0, travelMs: 1850, judge: { perfect: 72, great: 122, good: 185 }, maxGap: 1.3, holdLen: [0.9, 3.8] },
+  hard: { keep: 0.68, holdRate: 0.46, flickRate: 0.24, chordRate: 0.09, intro: 2.6, travelMs: 1600, judge: { perfect: 55, great: 95, good: 145 }, maxGap: 0.95, holdLen: [0.7, 3.5] },
 };
 
 const state = {
@@ -48,6 +50,7 @@ const state = {
   maxCombo: 0,
   score: 0,
   maxScore: 0,
+  possibleScore: 0,
   pressed: new Set(),
   activeHolds: new Map(),
 };
@@ -91,6 +94,15 @@ function overlapsAnyHold(candidateTime, holds) {
   return holds.some((h) => candidateTime >= h.time - 0.08 && candidateTime <= h.endTime + 0.08);
 }
 
+
+function pickHoldDuration(cfg) {
+  const r = Math.random();
+  if (r < 0.2) return rand(0.6, 1.2);
+  if (r < 0.55) return rand(1.2, 2.2);
+  if (r < 0.82) return rand(2.2, 3.4);
+  return rand(cfg.holdLen[0], cfg.holdLen[1]);
+}
+
 function analyzeBuffer(buffer, diffKey) {
   const cfg = diffCfg[diffKey] || diffCfg.normal;
   const d = buffer.getChannelData(0);
@@ -131,7 +143,7 @@ function analyzeBuffer(buffer, diffKey) {
 
     const base = { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false, started: false };
     if (Math.random() < cfg.holdRate) {
-      const hold = { ...base, type: 'hold', endTime: t + rand(cfg.holdLen[0], cfg.holdLen[1]) };
+      const hold = { ...base, type: 'hold', endTime: t + pickHoldDuration(cfg) };
       chart.push(hold);
       holdBlocks.push(hold);
       return;
@@ -167,7 +179,7 @@ function judgeByOffsetMs(ms) {
 }
 
 function updateScoreRate() {
-  const r = state.maxScore > 0 ? (state.score / state.maxScore) * 100 : 0;
+  const r = state.possibleScore > 0 ? (state.score / state.possibleScore) * 100 : 0;
   scoreRateText.textContent = `${Math.max(0, r).toFixed(1)}%`;
 }
 
@@ -176,7 +188,8 @@ function addFx(lane, color, scale) {
   laneBursts[lane].push({ born: performance.now(), color, size: scale, sparks: Array.from({ length: Math.round(8 + scale * 8) }, (_, i) => ({ angle: Math.PI * 2 * i / Math.round(8 + scale * 8), speed: 1.3 + Math.random() * (1.5 + scale) })) });
 }
 
-function registerJudge(j, lane) {
+function registerJudge(j, lane, possible = 1000) {
+  state.possibleScore += possible;
   state.score += SCORE[j.key];
   state.combo += 1;
   state.maxCombo = Math.max(state.maxCombo, state.combo);
@@ -188,7 +201,8 @@ function registerJudge(j, lane) {
   updateScoreRate();
 }
 
-function registerMiss(lane, label = '错过') {
+function registerMiss(lane, label = '错过', possible = 1000) {
+  state.possibleScore += possible;
   state.score += SCORE.miss;
   state.combo = 0;
   judgeText.textContent = label;
@@ -208,9 +222,9 @@ function onTap(lane) {
   if (!state.playing || state.paused) return;
   const n = nowSec();
   const target = pendingNote(lane);
-  if (!target) return registerMiss(lane);
+  if (!target) return registerMiss(lane, '空击', 0);
   const j = judgeByOffsetMs((n - target.time) * 1000);
-  if (!j) return registerMiss(lane);
+  if (!j) return registerMiss(lane, '错过', 1000);
 
   if (target.type === 'hold') {
     target.started = true;
@@ -244,7 +258,7 @@ function onRelease(lane) {
   const d = Math.abs(nowSec() - h.endTime) * 1000;
   const j = judgeByOffsetMs(d);
   if (j) registerJudge({ ...j, name: `${j.name}·收尾` }, lane);
-  else registerMiss(lane, '收尾错过');
+  else registerMiss(lane, '收尾错过', 1000);
 }
 
 function startGame() {
@@ -310,12 +324,12 @@ function updateLogic(now) {
     if (n.judged) continue;
     const late = now > n.time + 0.28;
     if (n.type === 'hold') {
-      if (!n.started && late) { n.judged = true; registerMiss(n.lane); }
-      else if (n.started && now > n.endTime + 0.22) { n.judged = true; state.activeHolds.delete(n.lane); registerMiss(n.lane, '收尾错过'); }
+      if (!n.started && late) { n.judged = true; registerMiss(n.lane, '错过', 1000); }
+      else if (n.started && now > n.endTime + 0.22) { n.judged = true; state.activeHolds.delete(n.lane); registerMiss(n.lane, '收尾错过', 1000); }
       continue;
     }
-    if (n.type === 'flick') { if (late) { n.judged = true; registerMiss(n.lane, '双击错过'); } continue; }
-    if (late) { n.judged = true; registerMiss(n.lane); }
+    if (n.type === 'flick') { if (late) { n.judged = true; registerMiss(n.lane, '双击错过', 1000); } continue; }
+    if (late) { n.judged = true; registerMiss(n.lane, '错过', 1000); }
   }
   if (audioBuffer && now > audioBuffer.duration + 0.5) finishRun();
 }
@@ -323,7 +337,7 @@ function updateLogic(now) {
 function finishRun() {
   state.playing = false;
   stateText.textContent = '结束';
-  const rate = state.maxScore > 0 ? Math.max(0, (state.score / state.maxScore) * 100) : 0;
+  const rate = state.possibleScore > 0 ? Math.max(0, (state.score / state.possibleScore) * 100) : 0;
   let rank = 'D', desc = 'Keep Grooving';
   if (rate >= 95) [rank, desc] = ['S', 'Rhythm Master'];
   else if (rate >= 88) [rank, desc] = ['A', 'Fantastic Flow'];
@@ -481,7 +495,7 @@ function analyzeCurrentTrack() {
   judgeWindows = result.cfg.judge;
   state.maxScore = notes.reduce((s, n) => s + (n.type === 'hold' ? SCORE.perfect * 2 : SCORE.perfect), 0);
   const count = notes.reduce((a, n) => ((a[n.type] = (a[n.type] || 0) + 1), a), {});
-  analysisText.textContent = `难度: ${diff}\n峰值: ${result.peaks}\n音符: ${notes.length}\nTap/Hold/Flick = ${count.tap || 0}/${count.hold || 0}/${count.flick || 0}\n前奏: ${result.intro.toFixed(1)}s\n长按时长: ${result.cfg.holdLen[0]}-${result.cfg.holdLen[1]}s（避免重叠）`;
+  analysisText.textContent = `难度: ${diff}\n峰值: ${result.peaks}\n音符: ${notes.length}\nTap/Hold/Flick = ${count.tap || 0}/${count.hold || 0}/${count.flick || 0}\n前奏: ${result.intro.toFixed(1)}s\n长按时长: ${result.cfg.holdLen[0]}-${result.cfg.holdLen[1]}s（复杂分布，避免重叠）`;
   stateText.textContent = '待开始';
 }
 
@@ -489,6 +503,7 @@ function resetRun() {
   state.combo = 0;
   state.maxCombo = 0;
   state.score = 0;
+  state.possibleScore = 0;
   state.activeHolds.clear();
   state.pressed.clear();
   state.paused = false;
@@ -500,11 +515,19 @@ function resetRun() {
   laneBursts = [[], [], []];
 }
 
+
+function updateProgress(now) {
+  const ratio = audioBuffer && state.playing ? Math.max(0, Math.min(1, now / audioBuffer.duration)) : 0;
+  progressFill.style.height = `${(ratio * 100).toFixed(1)}%`;
+  progressText.textContent = `${Math.round(ratio * 100)}%`;
+}
+
 function frame() {
   const now = state.playing && audioCtx ? nowSec() : 0;
   drawBg();
   drawNotes(now);
   updateLogic(now);
+  updateProgress(now);
   requestAnimationFrame(frame);
 }
 
@@ -524,6 +547,8 @@ audioFileInput.addEventListener('change', async (e) => {
   notes = [];
   analysisText.textContent = `已载入：${file.name}\n点击“分析节奏”生成谱面。`;
   stateText.textContent = '待分析';
+  progressFill.style.height = '0%';
+  progressText.textContent = '0%';
 });
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
