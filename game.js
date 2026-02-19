@@ -22,7 +22,7 @@ const closeResult = $('closeResult');
 const progressFill = $('progressFill');
 const progressText = $('progressText');
 
-const laneX = [250, 500, 750];
+const laneX = [250, 500, 750]; // F J K 三轨位置
 const laneWidth = 170;
 const hitY = 430;
 const spawnY = 65;
@@ -33,13 +33,14 @@ let laneFx = [null, null, null];
 let laneBursts = [[], [], []];
 let travelMs = 1800;
 let judgeWindows = { perfect: 72, great: 122, good: 185 };
+let chartEndTime = 0;
 
 const SCORE = { perfect: 1000, great: 700, good: 350, miss: -400 };
 
 const diffCfg = {
-  easy: { keep: 0.3, holdRate: 0.34, flickRate: 0.09, chordRate: 0.01, intro: 5.4, travelMs: 2100, judge: { perfect: 95, great: 165, good: 240 }, maxGap: 1.7, holdLen: [1.1, 4.2] },
-  normal: { keep: 0.62, holdRate: 0.42, flickRate: 0.2, chordRate: 0.09, intro: 3.8, travelMs: 1780, judge: { perfect: 70, great: 118, good: 178 }, maxGap: 1.05, holdLen: [0.8, 3.8] },
-  hard: { keep: 0.86, holdRate: 0.5, flickRate: 0.32, chordRate: 0.18, intro: 2.2, travelMs: 1500, judge: { perfect: 52, great: 90, good: 138 }, maxGap: 0.72, holdLen: [0.7, 3.8] },
+  easy: { intro: 4.8, travelMs: 2100, judge: { perfect: 95, great: 165, good: 240 }, beatSnap: 0.55, holdChance: 0.2 },
+  normal: { intro: 3.6, travelMs: 1820, judge: { perfect: 72, great: 122, good: 185 }, beatSnap: 0.75, holdChance: 0.26 },
+  hard: { intro: 2.2, travelMs: 1550, judge: { perfect: 55, great: 95, good: 145 }, beatSnap: 0.92, holdChance: 0.34 },
 };
 
 const state = {
@@ -49,7 +50,6 @@ const state = {
   combo: 0,
   maxCombo: 0,
   score: 0,
-  maxScore: 0,
   possibleScore: 0,
   pressed: new Set(),
   activeHolds: new Map(),
@@ -66,119 +66,151 @@ function beep(freq = 660, duration = 0.06, type = 'triangle', gainV = 0.04) {
   const now = audioCtx.currentTime;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
-  osc.type = type; osc.frequency.value = freq;
+  osc.type = type;
+  osc.frequency.value = freq;
   gain.gain.setValueAtTime(gainV, now);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
   osc.connect(gain).connect(audioCtx.destination);
-  osc.start(now); osc.stop(now + duration);
+  osc.start(now);
+  osc.stop(now + duration);
 }
 
-async function fileToBuffer(file) { ensureCtx(); return audioCtx.decodeAudioData((await file.arrayBuffer()).slice(0)); }
-
-function fillGaps(times, maxGap, start, end) {
-  const s = times.slice().sort((a, b) => a - b);
-  if (!s.length) return s;
-  const out = [s[0]];
-  for (let i = 1; i < s.length; i++) {
-    const p = out[out.length - 1], c = s[i], g = c - p;
-    if (g > maxGap) {
-      const steps = Math.floor(g / maxGap);
-      for (let n = 1; n <= steps; n++) out.push(p + (g / (steps + 1)) * n);
-    }
-    out.push(c);
-  }
-  return out.filter((t) => t >= start && t <= end);
+async function fileToBuffer(file) {
+  ensureCtx();
+  return audioCtx.decodeAudioData((await file.arrayBuffer()).slice(0));
 }
 
-function overlapsAnyHold(candidateTime, lane, holds) {
-  return holds.some((h) => h.lane === lane && candidateTime >= h.time - 0.08 && candidateTime <= h.endTime + 0.08);
-}
+function detectPeaks(data, sampleRate) {
+  const win = 2048;
+  const hop = 512;
+  const env = [];
+  const flux = [];
 
-
-function pickHoldDuration(cfg) {
-  const r = Math.random();
-  if (r < 0.2) return rand(0.6, 1.2);
-  if (r < 0.55) return rand(1.2, 2.2);
-  if (r < 0.82) return rand(2.2, 3.4);
-  return rand(cfg.holdLen[0], cfg.holdLen[1]);
-}
-
-function analyzeBuffer(buffer, diffKey) {
-  const cfg = diffCfg[diffKey] || diffCfg.normal;
-  const d = buffer.getChannelData(0);
-  const win = 1024, hop = 512, energies = [];
-
-  for (let i = 0; i < d.length - win; i += hop) {
+  let prev = 0;
+  for (let i = 0; i < data.length - win; i += hop) {
     let e = 0;
-    for (let j = 0; j < win; j++) e += d[i + j] * d[i + j];
-    energies.push(Math.sqrt(e / win));
+    let d = 0;
+    for (let j = 0; j < win; j++) {
+      const v = data[i + j];
+      e += v * v;
+      if (j) d += Math.abs(v - data[i + j - 1]);
+    }
+    const rms = Math.sqrt(e / win);
+    env.push(rms);
+    flux.push(Math.max(0, d / win - prev));
+    prev = d / win;
   }
-
-  const smooth = energies.map((_, i) => {
-    const l = Math.max(0, i - 8), r = Math.min(energies.length - 1, i + 8);
-    let s = 0;
-    for (let k = l; k <= r; k++) s += energies[k];
-    return s / (r - l + 1);
-  });
 
   const peaks = [];
-  for (let i = 2; i < energies.length - 2; i++) {
-    if (energies[i] > smooth[i] * 1.28 && energies[i] > energies[i - 1] && energies[i] > energies[i + 1]) {
-      const t = (i * hop) / buffer.sampleRate;
-      if (!peaks.length || t - peaks[peaks.length - 1] > 0.1) peaks.push(t);
+  for (let i = 4; i < env.length - 4; i++) {
+    const l = Math.max(0, i - 12);
+    const r = Math.min(env.length - 1, i + 12);
+    let mean = 0;
+    for (let k = l; k <= r; k++) mean += env[k] + flux[k] * 0.6;
+    mean /= (r - l + 1);
+    const score = env[i] + flux[i] * 0.8;
+    if (score > mean * 1.25 && score > env[i - 1] && score > env[i + 1]) {
+      const t = (i * hop) / sampleRate;
+      if (!peaks.length || t - peaks[peaks.length - 1] > 0.09) peaks.push(t);
     }
   }
+  return peaks;
+}
 
+function estimateBeat(peaks) {
+  if (peaks.length < 4) return 0.5;
+  const diffs = [];
+  for (let i = 1; i < peaks.length; i++) {
+    const d = peaks[i] - peaks[i - 1];
+    if (d > 0.18 && d < 1.1) diffs.push(d);
+  }
+  diffs.sort((a, b) => a - b);
+  return diffs.length ? diffs[Math.floor(diffs.length / 2)] : 0.5;
+}
+
+function pickMode(sectionIdx) {
+  const modes = ['groove', 'call', 'sync', 'hold'];
+  return modes[sectionIdx % modes.length];
+}
+
+function pushIfGap(list, note, nextAvailableRef) {
+  if (note.time < nextAvailableRef.v) return;
+  list.push(note);
+  if (note.type === 'hold') nextAvailableRef.v = note.endTime + 0.06;
+  else nextAvailableRef.v = note.time + 0.045;
+}
+
+function buildChart(peaks, duration, diffKey) {
+  const cfg = diffCfg[diffKey] || diffCfg.normal;
+  const beat = estimateBeat(peaks);
   const intro = cfg.intro;
-  const end = Math.max(intro, buffer.duration - 0.8);
-  const kept = peaks.filter((t) => t >= intro && t <= end).filter(() => Math.random() < cfg.keep);
-  const times = fillGaps(kept, cfg.maxGap, intro, end);
+  const lastPeak = peaks.length ? peaks[peaks.length - 1] : duration - 5;
+  const endTime = Math.min(duration - 3.8, lastPeak + 6.5);
+  const safeEnd = Math.max(intro + 12, endTime);
+
+  const timeline = [];
+  for (let t = intro; t <= safeEnd; t += beat / cfg.beatSnap) timeline.push(t);
 
   const chart = [];
-  const holdBlocks = [];
+  const nextAvailable = { v: -1 };
 
-  times.forEach((t, i) => {
-    const lane = i % 3;
-    if (overlapsAnyHold(t, lane, holdBlocks)) return;
+  timeline.forEach((t, i) => {
+    const section = Math.floor(i / 24);
+    const mode = pickMode(section);
 
-    const base = { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false, started: false };
-    if (Math.random() < cfg.holdRate) {
-      const hold = { ...base, type: 'hold', endTime: t + pickHoldDuration(cfg) };
-      chart.push(hold);
-      holdBlocks.push(hold);
-      if (diffKey === 'hard') {
-        const altLanes = [0, 1, 2].filter((x) => x !== lane);
-        const tA = t + 0.32;
-        const tB = t + 0.68;
-        if (tA < hold.endTime - 0.18 && !overlapsAnyHold(tA, altLanes[0], holdBlocks)) {
-          chart.push({ ...base, id: `ha${i}`, lane: altLanes[0], type: 'tap', time: tA });
-        }
-        if (tB < hold.endTime - 0.16 && !overlapsAnyHold(tB, altLanes[1], holdBlocks) && Math.random() < 0.75) {
-          chart.push({ ...base, id: `hb${i}`, lane: altLanes[1], type: 'tap', time: tB });
-        }
+    // 把“音乐性”映射到轨道语义：
+    // F(0)=低频主拍，J(1)=中频主旋，K(2)=高频切分/点缀
+    const strong = i % 4 === 0;
+
+    if (mode === 'groove') {
+      if (strong) pushIfGap(chart, { id: `n${i}`, time: t, lane: 0, type: 'tap', judged: false, missed: false }, nextAvailable);
+      else if (i % 2 === 0) pushIfGap(chart, { id: `n${i}`, time: t, lane: 1, type: 'tap', judged: false, missed: false }, nextAvailable);
+      else if (Math.random() < 0.22) pushIfGap(chart, { id: `n${i}`, time: t, lane: 2, type: 'tap', judged: false, missed: false }, nextAvailable);
+      return;
+    }
+
+    if (mode === 'call') {
+      const lane = (Math.floor(i / 2) % 2 === 0) ? 0 : 1;
+      pushIfGap(chart, { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false }, nextAvailable);
+      if (i % 8 === 7 && Math.random() < 0.55) {
+        pushIfGap(chart, { id: `f${i}`, time: t + beat * 0.35, lane: 2, type: 'flick', tapsNeeded: 2, tapsDone: 0, firstTapAt: null, flickWindow: 0.22, judged: false, missed: false }, nextAvailable);
       }
       return;
     }
 
-    if (Math.random() < cfg.flickRate) {
-      chart.push({ ...base, type: 'flick', tapsNeeded: 2, tapsDone: 0, firstTapAt: null, flickWindow: 0.22 });
+    if (mode === 'sync') {
+      if (Math.random() < (diffKey === 'hard' ? 0.75 : 0.55)) {
+        const lane = (i % 3);
+        pushIfGap(chart, { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false }, nextAvailable);
+      }
+      if (diffKey !== 'easy' && i % 6 === 0 && Math.random() < 0.45) {
+        pushIfGap(chart, { id: `c${i}`, time: t + beat * 0.25, lane: 2, type: 'tap', judged: false, missed: false }, nextAvailable);
+      }
       return;
     }
 
-    if (Math.random() < cfg.chordRate) {
-      const t2 = t + 0.02;
-      if (!overlapsAnyHold(t2, 0, holdBlocks) && !overlapsAnyHold(t2, 2, holdBlocks)) {
-        chart.push({ ...base, lane: 0, type: 'tap' });
-        chart.push({ ...base, id: `c${i}`, lane: 2, type: 'tap', time: t2 });
-        return;
+    // hold 模式：长按主导，但也允许其它轨道在长按后半段出键
+    if (Math.random() < cfg.holdChance) {
+      const lane = [0, 1, 2][i % 3];
+      const holdLen = rand(diffKey === 'hard' ? 1.0 : 1.2, diffKey === 'hard' ? 4.2 : 3.8);
+      const hold = { id: `h${i}`, time: t, lane, type: 'hold', endTime: Math.min(t + holdLen, safeEnd - 0.2), judged: false, missed: false, started: false };
+      pushIfGap(chart, hold, nextAvailable);
+
+      if (diffKey !== 'easy') {
+        const alt = [0, 1, 2].filter((x) => x !== lane);
+        const t1 = t + holdLen * 0.5;
+        const t2 = t + holdLen * 0.78;
+        if (t1 < hold.endTime - 0.15) pushIfGap(chart, { id: `ha${i}`, time: t1, lane: alt[0], type: 'tap', judged: false, missed: false }, nextAvailable);
+        if (diffKey === 'hard' && t2 < hold.endTime - 0.12) pushIfGap(chart, { id: `hb${i}`, time: t2, lane: alt[1], type: 'tap', judged: false, missed: false }, nextAvailable);
       }
+      return;
     }
 
-    chart.push(base);
+    pushIfGap(chart, { id: `n${i}`, time: t, lane: i % 3, type: 'tap', judged: false, missed: false }, nextAvailable);
   });
 
   chart.sort((a, b) => a.time - b.time);
-  return { cfg, notes: chart, peaks: peaks.length, intro };
+  return { notes: chart, intro, beat, end: safeEnd };
 }
 
 function judgeByOffsetMs(ms) {
@@ -196,7 +228,15 @@ function updateScoreRate() {
 
 function addFx(lane, color, scale) {
   laneFx[lane] = { until: performance.now() + 220, color, scale };
-  laneBursts[lane].push({ born: performance.now(), color, size: scale, sparks: Array.from({ length: Math.round(8 + scale * 8) }, (_, i) => ({ angle: Math.PI * 2 * i / Math.round(8 + scale * 8), speed: 1.3 + Math.random() * (1.5 + scale) })) });
+  laneBursts[lane].push({
+    born: performance.now(),
+    color,
+    size: scale,
+    sparks: Array.from({ length: Math.round(8 + scale * 8) }, (_, i) => ({
+      angle: Math.PI * 2 * i / Math.round(8 + scale * 8),
+      speed: 1.3 + Math.random() * (1.5 + scale),
+    })),
+  });
 }
 
 function registerJudge(j, lane, possible = 1000) {
@@ -277,7 +317,15 @@ function startGame() {
   ensureCtx();
   if (source) source.disconnect();
   resetRun();
-  notes.forEach((n) => { n.judged = false; n.missed = false; n.started = false; if (n.type === 'flick') { n.tapsDone = 0; n.firstTapAt = null; } });
+  notes.forEach((n) => {
+    n.judged = false;
+    n.missed = false;
+    n.started = false;
+    if (n.type === 'flick') {
+      n.tapsDone = 0;
+      n.firstTapAt = null;
+    }
+  });
   source = audioCtx.createBufferSource();
   source.buffer = audioBuffer;
   source.connect(audioCtx.destination);
@@ -342,11 +390,16 @@ function updateLogic(now) {
     if (n.type === 'flick') { if (late) { n.judged = true; registerMiss(n.lane, '双击错过', 1000); } continue; }
     if (late) { n.judged = true; registerMiss(n.lane, '错过', 1000); }
   }
-  if (audioBuffer && now > audioBuffer.duration + 0.5) finishRun();
+  if (now > chartEndTime + 1.0) finishRun();
 }
 
 function finishRun() {
   state.playing = false;
+  if (source) {
+    try { source.stop(); } catch {}
+    source.disconnect();
+    source = null;
+  }
   stateText.textContent = '结束';
   const rate = state.possibleScore > 0 ? Math.max(0, (state.score / state.possibleScore) * 100) : 0;
   let rank = 'D', desc = 'Keep Grooving';
@@ -416,9 +469,11 @@ function drawBg() {
     ctx.fillStyle = '#0009';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#dff0ff';
-    ctx.font = 'bold 32px sans-serif';
+    ctx.font = 'bold 30px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(startHint, canvas.width / 2, canvas.height / 2);
+    ctx.fillText(startHint, canvas.width / 2, canvas.height / 2 - 20);
+    ctx.font = '16px sans-serif';
+    ctx.fillText('轨道语义：F=主拍低频 / J=主旋中频 / K=切分高频', canvas.width / 2, canvas.height / 2 + 18);
   } else if (state.paused) {
     ctx.fillStyle = '#0008';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -472,7 +527,6 @@ function drawNotes(now) {
   }
 }
 
-
 function stopPlaybackForReanalyze() {
   if (source) {
     try { source.stop(); } catch {}
@@ -498,15 +552,31 @@ function analyzeCurrentTrack() {
     analysisText.textContent = '请先加载音乐。';
     return;
   }
+
   const diff = difficultySelect.value;
-  const result = analyzeBuffer(audioBuffer, diff);
-  notes = result.notes;
+  const cfg = diffCfg[diff] || diffCfg.normal;
+  travelMs = cfg.travelMs;
+  judgeWindows = cfg.judge;
+
+  const peaks = detectPeaks(audioBuffer.getChannelData(0), audioBuffer.sampleRate);
+  const built = buildChart(peaks, audioBuffer.duration, diff);
+  notes = built.notes;
+  chartEndTime = built.end;
   startBtn.disabled = !notes.length;
-  travelMs = result.cfg.travelMs;
-  judgeWindows = result.cfg.judge;
-  state.maxScore = notes.reduce((s, n) => s + (n.type === 'hold' ? SCORE.perfect * 2 : SCORE.perfect), 0);
+
   const count = notes.reduce((a, n) => ((a[n.type] = (a[n.type] || 0) + 1), a), {});
-  analysisText.textContent = `难度: ${diff}\n峰值: ${result.peaks}\n音符: ${notes.length}\n密度参数 keep/maxGap: ${result.cfg.keep}/${result.cfg.maxGap}\nTap/Hold/Flick = ${count.tap || 0}/${count.hold || 0}/${count.flick || 0}\n前奏: ${result.intro.toFixed(1)}s\n长按时长: ${result.cfg.holdLen[0]}-${result.cfg.holdLen[1]}s（复杂分布，避免重叠）`;
+  const modePlan = '模式序列: Groove(主拍) → Call(呼应) → Sync(切分) → Hold(长线) 循环';
+  analysisText.textContent = [
+    `难度: ${diff}`,
+    `检测峰值: ${peaks.length}`,
+    `拍点估计: ${(built.beat || 0.5).toFixed(3)}s`,
+    `谱面结束点: ${built.end.toFixed(1)}s（避免长尾空窗）`,
+    `音符: ${notes.length}`,
+    `Tap/Hold/Flick = ${count.tap || 0}/${count.hold || 0}/${count.flick || 0}`,
+    '三轨语义: F=低频主拍 / J=中频旋律 / K=高频点缀',
+    modePlan,
+  ].join('\n');
+
   stateText.textContent = '待开始';
 }
 
@@ -526,9 +596,8 @@ function resetRun() {
   laneBursts = [[], [], []];
 }
 
-
 function updateProgress(now) {
-  const ratio = audioBuffer && state.playing ? Math.max(0, Math.min(1, now / audioBuffer.duration)) : 0;
+  const ratio = audioBuffer && state.playing ? Math.max(0, Math.min(1, now / Math.max(1, chartEndTime))) : 0;
   progressFill.style.height = `${(ratio * 100).toFixed(1)}%`;
   progressText.textContent = `${Math.round(ratio * 100)}%`;
 }
@@ -545,11 +614,13 @@ function frame() {
 analyzeBtn.addEventListener('click', analyzeCurrentTrack);
 startBtn.addEventListener('click', startGame);
 closeResult.addEventListener('click', () => resultOverlay.classList.add('hidden'));
+
 difficultySelect.addEventListener('change', () => {
   const cfg = diffCfg[difficultySelect.value] || diffCfg.normal;
   travelMs = cfg.travelMs;
   judgeWindows = cfg.judge;
 });
+
 audioFileInput.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
@@ -561,12 +632,13 @@ audioFileInput.addEventListener('change', async (e) => {
   progressFill.style.height = '0%';
   progressText.textContent = '0%';
 });
+
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
 
 document.querySelectorAll('.touch-key[data-lane]').forEach((btn) => {
   const lane = Number(btn.dataset.lane);
-  const down = (e) => { e.preventDefault(); if (!state.pressed.has(['f','j','k'][lane])) handleDown(lane); };
+  const down = (e) => { e.preventDefault(); if (!state.pressed.has(['f', 'j', 'k'][lane])) handleDown(lane); };
   const up = (e) => { e.preventDefault(); handleUp(lane); };
   btn.addEventListener('pointerdown', down);
   btn.addEventListener('pointerup', up);
