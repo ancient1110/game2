@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Overpass Groove Lab</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -10,11 +10,11 @@
     <main class="app">
       <header>
         <h1>Overpass Groove Lab</h1>
-        <p>自动拆谱 · 触屏可玩 · 评级结算</p>
+        <p>自动拆谱 · 空格开始/暂停 · 触屏可玩</p>
       </header>
 
       <section class="panel">
-        <div class="row controls">
+        <div class="row">
           <label class="file-picker">
             <span>音频文件</span>
             <input id="audioFile" type="file" accept="audio/*" />
@@ -30,7 +30,6 @@
           <button id="analyzeBtn">分析节奏</button>
           <button id="startBtn" disabled>开始演奏</button>
         </div>
-
         <div class="row stats">
           <div>连击：<strong id="combo">0</strong></div>
           <div>得分：<strong id="score">0</strong></div>
@@ -40,10 +39,8 @@
         </div>
       </section>
 
-      <section class="game-wrap" id="gameWrap">
-        <aside class="streak left" id="leftStreak"></aside>
-        <canvas id="game" width="1000" height="540"></canvas>
-        <aside class="streak right" id="rightStreak"></aside>
+      <section class="game-wrap">
+        <canvas id="game" width="1000" height="560"></canvas>
       </section>
 
       <section class="touch-pad" id="touchPad">

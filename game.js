@@ -12,8 +12,6 @@ const judgeText = $('judge');
 const scoreRateText = $('scoreRate');
 const stateText = $('stateText');
 const analysisText = $('analysisText');
-const leftStreak = $('leftStreak');
-const rightStreak = $('rightStreak');
 const resultOverlay = $('resultOverlay');
 const resultRank = $('resultRank');
 const resultDesc = $('resultDesc');
@@ -26,21 +24,19 @@ const pauseBtn = $('pauseBtn');
 const laneX = [250, 500, 750];
 const laneWidth = 170;
 const hitY = 430;
-const spawnY = 60;
+const spawnY = 65;
 
 let audioCtx, audioBuffer, source;
 let notes = [];
 let laneFx = [null, null, null];
 let laneBursts = [[], [], []];
-let travelMs = 1750;
+let travelMs = 1800;
 let judgeWindows = { perfect: 72, great: 122, good: 185 };
-let streakState = 0;
-let streakUntil = 0;
 
 const SCORE = { perfect: 1000, great: 700, good: 350, miss: -400 };
 
 const diffCfg = {
-  easy: { keep: 0.3, holdRate: 0.34, flickRate: 0.03, chordRate: 0.01, intro: 5.6, travelMs: 2100, judge: { perfect: 95, great: 165, good: 240 }, maxGap: 1.7, holdLen: [1.6, 3.6] },
+  easy: { keep: 0.3, holdRate: 0.34, flickRate: 0.03, chordRate: 0.01, intro: 5.4, travelMs: 2100, judge: { perfect: 95, great: 165, good: 240 }, maxGap: 1.7, holdLen: [1.6, 3.6] },
   normal: { keep: 0.52, holdRate: 0.4, flickRate: 0.07, chordRate: 0.05, intro: 4.0, travelMs: 1850, judge: { perfect: 72, great: 122, good: 185 }, maxGap: 1.3, holdLen: [1.4, 3.2] },
   hard: { keep: 0.68, holdRate: 0.46, flickRate: 0.13, chordRate: 0.09, intro: 2.6, travelMs: 1600, judge: { perfect: 55, great: 95, good: 145 }, maxGap: 0.95, holdLen: [1.2, 2.8] },
 };
@@ -57,36 +53,18 @@ const state = {
   activeHolds: new Map(),
 };
 
+const startHint = '按 空格 开始演奏 / 演奏中按 空格 暂停';
+
 function ensureCtx() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
 function nowSec() { return audioCtx.currentTime - state.startTime; }
 function rand(a, b) { return a + Math.random() * (b - a); }
-
-function setStreak(kind) {
-  streakState = kind;
-  streakUntil = performance.now() + 900;
-  const color = kind === 2 ? '#4dff88' : kind === 1 ? '#5cb3ff' : kind === -1 ? '#ff5a6e' : '#ffaf45';
-  [leftStreak, rightStreak].forEach((el) => {
-    el.classList.add('hot');
-    el.style.setProperty('--streak-color', color);
-    el.style.background = `linear-gradient(180deg, ${color}55, #131a30)`;
-  });
-}
-
-function clearStreakIfNeeded() {
-  if (performance.now() < streakUntil) return;
-  [leftStreak, rightStreak].forEach((el) => {
-    el.classList.remove('hot');
-    el.style.background = 'linear-gradient(180deg, #141f3a, #131a30)';
-  });
-}
 
 function beep(freq = 660, duration = 0.06, type = 'triangle', gainV = 0.04) {
   ensureCtx();
   const now = audioCtx.currentTime;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
-  osc.type = type;
-  osc.frequency.value = freq;
+  osc.type = type; osc.frequency.value = freq;
   gain.gain.setValueAtTime(gainV, now);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
   osc.connect(gain).connect(audioCtx.destination);
@@ -100,7 +78,7 @@ function fillGaps(times, maxGap, start, end) {
   if (!s.length) return s;
   const out = [s[0]];
   for (let i = 1; i < s.length; i++) {
-    const p = out[out.length - 1]; const c = s[i]; const g = c - p;
+    const p = out[out.length - 1], c = s[i], g = c - p;
     if (g > maxGap) {
       const steps = Math.floor(g / maxGap);
       for (let n = 1; n <= steps; n++) out.push(p + (g / (steps + 1)) * n);
@@ -110,17 +88,28 @@ function fillGaps(times, maxGap, start, end) {
   return out.filter((t) => t >= start && t <= end);
 }
 
+function overlapsAnyHold(candidateTime, holds) {
+  return holds.some((h) => candidateTime >= h.time - 0.08 && candidateTime <= h.endTime + 0.08);
+}
+
 function analyzeBuffer(buffer, diffKey) {
   const cfg = diffCfg[diffKey] || diffCfg.normal;
   const d = buffer.getChannelData(0);
   const win = 1024, hop = 512, energies = [];
+
   for (let i = 0; i < d.length - win; i += hop) {
-    let e = 0; for (let j = 0; j < win; j++) e += d[i + j] * d[i + j]; energies.push(Math.sqrt(e / win));
+    let e = 0;
+    for (let j = 0; j < win; j++) e += d[i + j] * d[i + j];
+    energies.push(Math.sqrt(e / win));
   }
+
   const smooth = energies.map((_, i) => {
     const l = Math.max(0, i - 8), r = Math.min(energies.length - 1, i + 8);
-    let s = 0; for (let k = l; k <= r; k++) s += energies[k]; return s / (r - l + 1);
+    let s = 0;
+    for (let k = l; k <= r; k++) s += energies[k];
+    return s / (r - l + 1);
   });
+
   const peaks = [];
   for (let i = 2; i < energies.length - 2; i++) {
     if (energies[i] > smooth[i] * 1.28 && energies[i] > energies[i - 1] && energies[i] > energies[i + 1]) {
@@ -128,19 +117,44 @@ function analyzeBuffer(buffer, diffKey) {
       if (!peaks.length || t - peaks[peaks.length - 1] > 0.1) peaks.push(t);
     }
   }
-  const intro = cfg.intro, end = Math.max(intro, buffer.duration - 0.8);
+
+  const intro = cfg.intro;
+  const end = Math.max(intro, buffer.duration - 0.8);
   const kept = peaks.filter((t) => t >= intro && t <= end).filter(() => Math.random() < cfg.keep);
   const times = fillGaps(kept, cfg.maxGap, intro, end);
 
   const chart = [];
+  const holdBlocks = [];
+
   times.forEach((t, i) => {
     const lane = i % 3;
+    if (overlapsAnyHold(t, holdBlocks)) return;
+
     const base = { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false, started: false };
-    if (Math.random() < cfg.holdRate) chart.push({ ...base, type: 'hold', endTime: t + rand(cfg.holdLen[0], cfg.holdLen[1]) });
-    else if (Math.random() < cfg.flickRate) chart.push({ ...base, type: 'flick', tapsNeeded: 2, tapsDone: 0, firstTapAt: null, flickWindow: 0.22 });
-    else if (Math.random() < cfg.chordRate) { chart.push({ ...base, lane: 0 }); chart.push({ ...base, id: `c${i}`, lane: 2, time: t + 0.02 }); }
-    else chart.push(base);
+    if (Math.random() < cfg.holdRate) {
+      const hold = { ...base, type: 'hold', endTime: t + rand(cfg.holdLen[0], cfg.holdLen[1]) };
+      chart.push(hold);
+      holdBlocks.push(hold);
+      return;
+    }
+
+    if (Math.random() < cfg.flickRate) {
+      chart.push({ ...base, type: 'flick', tapsNeeded: 2, tapsDone: 0, firstTapAt: null, flickWindow: 0.22 });
+      return;
+    }
+
+    if (Math.random() < cfg.chordRate) {
+      const t2 = t + 0.02;
+      if (!overlapsAnyHold(t2, holdBlocks)) {
+        chart.push({ ...base, lane: 0, type: 'tap' });
+        chart.push({ ...base, id: `c${i}`, lane: 2, type: 'tap', time: t2 });
+        return;
+      }
+    }
+
+    chart.push(base);
   });
+
   chart.sort((a, b) => a.time - b.time);
   return { cfg, notes: chart, peaks: peaks.length, intro };
 }
@@ -169,7 +183,6 @@ function registerJudge(j, lane) {
   state.maxCombo = Math.max(state.maxCombo, state.combo);
   judgeText.textContent = j.name;
   addFx(lane, j.color, j.fx);
-  setStreak(j.key === 'perfect' ? 2 : 1);
   beep(j.key === 'perfect' ? 960 : j.key === 'great' ? 790 : 630, 0.07, 'triangle', 0.04);
   comboText.textContent = String(state.combo);
   scoreText.textContent = String(state.score);
@@ -181,7 +194,6 @@ function registerMiss(lane, label = '错过') {
   state.combo = 0;
   judgeText.textContent = label;
   addFx(lane, '#ff5a6e', 0.85);
-  setStreak(-1);
   beep(210, 0.09, 'sawtooth', 0.03);
   comboText.textContent = '0';
   scoreText.textContent = String(state.score);
@@ -207,11 +219,20 @@ function onTap(lane) {
     registerJudge({ ...j, name: `${j.name}·按住`, fx: j.fx + 0.08 }, lane);
     return;
   }
+
   if (target.type === 'flick') {
-    if (!target.firstTapAt || n - target.firstTapAt > target.flickWindow) { target.firstTapAt = n; target.tapsDone = 0; }
+    if (!target.firstTapAt || n - target.firstTapAt > target.flickWindow) {
+      target.firstTapAt = n;
+      target.tapsDone = 0;
+    }
     target.tapsDone += 1;
-    if (target.tapsDone < target.tapsNeeded) { addFx(lane, '#5cb3ff', 0.5); beep(520, 0.025, 'sine', 0.015); return; }
+    if (target.tapsDone < target.tapsNeeded) {
+      addFx(lane, '#5cb3ff', 0.5);
+      beep(520, 0.025, 'sine', 0.015);
+      return;
+    }
   }
+
   target.judged = true;
   registerJudge(j, lane);
 }
@@ -227,31 +248,58 @@ function onRelease(lane) {
   else registerMiss(lane, '收尾错过');
 }
 
+function startGame() {
+  if (!audioBuffer || !notes.length) return;
+  ensureCtx();
+  if (source) source.disconnect();
+  resetRun();
+  notes.forEach((n) => { n.judged = false; n.missed = false; n.started = false; if (n.type === 'flick') { n.tapsDone = 0; n.firstTapAt = null; } });
+  source = audioCtx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(audioCtx.destination);
+  state.startTime = audioCtx.currentTime + 0.08;
+  state.playing = true;
+  stateText.textContent = '演奏中';
+  resultOverlay.classList.add('hidden');
+  source.start(state.startTime);
+}
+
 function togglePause() {
-  if (!state.playing) return;
+  if (!state.playing) {
+    if (audioBuffer && notes.length) startGame();
+    return;
+  }
   state.paused = !state.paused;
   stateText.textContent = state.paused ? '暂停' : '演奏中';
   if (state.paused) audioCtx.suspend(); else audioCtx.resume();
 }
 
 function handleDown(lane) {
-  const key = ['f','j','k'][lane];
-  state.pressed.add(key); onTap(lane);
+  const key = ['f', 'j', 'k'][lane];
+  state.pressed.add(key);
+  onTap(lane);
 }
+
 function handleUp(lane) {
-  const key = ['f','j','k'][lane];
-  state.pressed.delete(key); onRelease(lane);
+  const key = ['f', 'j', 'k'][lane];
+  state.pressed.delete(key);
+  onRelease(lane);
 }
 
 function onKeyDown(e) {
-  const map = { f:0, j:1, k:2 };
+  const map = { f: 0, j: 1, k: 2 };
   const key = e.key.toLowerCase();
-  if (e.code === 'Space') { e.preventDefault(); togglePause(); return; }
+  if (e.code === 'Space') {
+    e.preventDefault();
+    togglePause();
+    return;
+  }
   if (!(key in map) || state.pressed.has(key)) return;
   handleDown(map[key]);
 }
+
 function onKeyUp(e) {
-  const map = { f:0, j:1, k:2 };
+  const map = { f: 0, j: 1, k: 2 };
   const key = e.key.toLowerCase();
   if (!(key in map)) return;
   handleUp(map[key]);
@@ -294,15 +342,16 @@ function drawLaneFx(lane, x, nowMs) {
   const a = laneFx[lane];
   if (a && nowMs < a.until) {
     const r = (a.until - nowMs) / 220;
-    const alpha = Math.max(10, Math.floor(r * 140)).toString(16).padStart(2,'0');
+    const alpha = Math.max(10, Math.floor(r * 140)).toString(16).padStart(2, '0');
     ctx.fillStyle = `${a.color}${alpha}`;
     ctx.fillRect(x - laneWidth / 2, hitY - 22, laneWidth, 44);
     ctx.strokeStyle = a.color;
     ctx.lineWidth = 3 + a.scale * 2;
     ctx.beginPath();
-    ctx.arc(x, hitY + 2, 18 + (1-r)*(30 + a.scale*14), 0, Math.PI * 2);
+    ctx.arc(x, hitY + 2, 18 + (1 - r) * (30 + a.scale * 14), 0, Math.PI * 2);
     ctx.stroke();
   }
+
   laneBursts[lane] = laneBursts[lane].filter((b) => nowMs - b.born < 380);
   laneBursts[lane].forEach((b) => {
     const t = Math.min(1, (nowMs - b.born) / 380);
@@ -310,86 +359,120 @@ function drawLaneFx(lane, x, nowMs) {
       const d = 14 + t * 56 * s.speed * b.size;
       ctx.fillStyle = b.color;
       ctx.beginPath();
-      ctx.arc(x + Math.cos(s.angle)*d, hitY + Math.sin(s.angle)*d, Math.max(1, 4*b.size - t*3.1), 0, Math.PI*2);
+      ctx.arc(x + Math.cos(s.angle) * d, hitY + Math.sin(s.angle) * d, Math.max(1, 4 * b.size - t * 3.1), 0, Math.PI * 2);
       ctx.fill();
     });
   });
 }
 
-function drawBg(now) {
+function drawBg() {
   const nowMs = performance.now();
-  const g = ctx.createLinearGradient(0,0,0,canvas.height);
-  g.addColorStop(0,'#0d1324'); g.addColorStop(1,'#172d62');
-  ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width,canvas.height);
-  for (let i=0;i<3;i++) {
-    const key = i===0?'f':i===1?'j':'k';
+  const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  g.addColorStop(0, '#0d1324');
+  g.addColorStop(1, '#172d62');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (let i = 0; i < 3; i++) {
+    const key = i === 0 ? 'f' : i === 1 ? 'j' : 'k';
     const down = state.pressed.has(key);
     ctx.fillStyle = down ? '#335ba8cc' : '#223a6b88';
-    ctx.fillRect(laneX[i]-laneWidth/2,0,laneWidth,canvas.height);
+    ctx.fillRect(laneX[i] - laneWidth / 2, 0, laneWidth, canvas.height);
     ctx.strokeStyle = down ? '#95beff' : '#5d7ec9';
-    ctx.strokeRect(laneX[i]-laneWidth/2,0,laneWidth,canvas.height);
+    ctx.strokeRect(laneX[i] - laneWidth / 2, 0, laneWidth, canvas.height);
   }
-  ctx.fillStyle = '#dff0ff'; ctx.fillRect(140, hitY, 720, 7);
-  drawLaneFx(0, laneX[0], nowMs); drawLaneFx(1, laneX[1], nowMs); drawLaneFx(2, laneX[2], nowMs);
-  if (state.paused) { ctx.fillStyle = '#0008'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#fff'; ctx.font='bold 42px sans-serif'; ctx.textAlign='center'; ctx.fillText('PAUSED', 500, 270); }
+
+  ctx.fillStyle = '#dff0ff';
+  ctx.fillRect(140, hitY, 720, 7);
+  drawLaneFx(0, laneX[0], nowMs);
+  drawLaneFx(1, laneX[1], nowMs);
+  drawLaneFx(2, laneX[2], nowMs);
+
+  if (!state.playing && notes.length) {
+    ctx.fillStyle = '#0009';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#dff0ff';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(startHint, canvas.width / 2, canvas.height / 2);
+  } else if (state.paused) {
+    ctx.fillStyle = '#0008';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 42px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2);
+  }
 }
 
-function yFor(t, now) { return spawnY + (1 - ((t-now)*1000)/travelMs) * (hitY - spawnY); }
+function yFor(t, now) { return spawnY + (1 - ((t - now) * 1000) / travelMs) * (hitY - spawnY); }
+
 function drawNotes(now) {
   for (const n of notes) {
     if (n.judged && n.missed) continue;
-    const y = yFor(n.time, now); if (y < -70 || y > canvas.height + 90) continue;
+    const y = yFor(n.time, now);
+    if (y < -70 || y > canvas.height + 90) continue;
     const x = laneX[n.lane];
     const color = n.type === 'hold' ? '#4dff88' : n.type === 'flick' ? '#ffaf45' : '#5cb3ff';
     if (n.type === 'hold') {
       const y2 = yFor(n.endTime, now);
-      ctx.strokeStyle = '#58ff9c'; ctx.lineWidth = 12; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y2); ctx.stroke();
+      ctx.strokeStyle = '#58ff9c';
+      ctx.lineWidth = 12;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y2);
+      ctx.stroke();
     }
-    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI*2); ctx.fill();
-    if (n.type === 'flick') { ctx.fillStyle='#1a1d27'; ctx.font='bold 12px sans-serif'; ctx.textAlign='center'; ctx.fillText('2x',x,y+4); }
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 22, 0, Math.PI * 2);
+    ctx.fill();
+    if (n.type === 'flick') {
+      ctx.fillStyle = '#1a1d27';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('2x', x, y + 4);
+    }
   }
 }
 
 function analyzeCurrentTrack() {
-  if (!audioBuffer) return (analysisText.textContent = '请先加载音乐。');
+  if (!audioBuffer) {
+    analysisText.textContent = '请先加载音乐。';
+    return;
+  }
   const diff = difficultySelect.value;
   const result = analyzeBuffer(audioBuffer, diff);
   notes = result.notes;
   startBtn.disabled = !notes.length;
   travelMs = result.cfg.travelMs;
   judgeWindows = result.cfg.judge;
-  state.maxScore = notes.reduce((s,n)=> s + (n.type === 'hold' ? SCORE.perfect * 2 : SCORE.perfect), 0);
-  const count = notes.reduce((a,n)=>((a[n.type]=(a[n.type]||0)+1),a),{});
-  analysisText.textContent = `难度: ${diff}\n峰值: ${result.peaks}\n音符: ${notes.length}\nTap/Hold/Flick = ${count.tap||0}/${count.hold||0}/${count.flick||0}\n前奏: ${result.intro.toFixed(1)}s\n长按时长: ${result.cfg.holdLen[0]}-${result.cfg.holdLen[1]}s`;
+  state.maxScore = notes.reduce((s, n) => s + (n.type === 'hold' ? SCORE.perfect * 2 : SCORE.perfect), 0);
+  const count = notes.reduce((a, n) => ((a[n.type] = (a[n.type] || 0) + 1), a), {});
+  analysisText.textContent = `难度: ${diff}\n峰值: ${result.peaks}\n音符: ${notes.length}\nTap/Hold/Flick = ${count.tap || 0}/${count.hold || 0}/${count.flick || 0}\n前奏: ${result.intro.toFixed(1)}s\n长按时长: ${result.cfg.holdLen[0]}-${result.cfg.holdLen[1]}s（避免重叠）`;
+  stateText.textContent = '待开始';
 }
 
 function resetRun() {
-  state.combo = 0; state.maxCombo = 0; state.score = 0;
-  state.activeHolds.clear(); state.pressed.clear(); state.paused = false;
-  comboText.textContent = '0'; scoreText.textContent = '0'; judgeText.textContent = '--'; scoreRateText.textContent = '0%';
-  laneFx = [null,null,null]; laneBursts=[[],[],[]];
-}
-
-function startGame() {
-  if (!audioBuffer || !notes.length) return;
-  ensureCtx();
-  if (source) source.disconnect();
-  resetRun();
-  notes.forEach((n)=>{ n.judged=false; n.missed=false; n.started=false; if(n.type==='flick'){n.tapsDone=0;n.firstTapAt=null;} });
-  source = audioCtx.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(audioCtx.destination);
-  state.startTime = audioCtx.currentTime + 0.08;
-  state.playing = true;
-  stateText.textContent = '演奏中';
-  resultOverlay.classList.add('hidden');
-  source.start(state.startTime);
+  state.combo = 0;
+  state.maxCombo = 0;
+  state.score = 0;
+  state.activeHolds.clear();
+  state.pressed.clear();
+  state.paused = false;
+  comboText.textContent = '0';
+  scoreText.textContent = '0';
+  judgeText.textContent = '--';
+  scoreRateText.textContent = '0%';
+  laneFx = [null, null, null];
+  laneBursts = [[], [], []];
 }
 
 function frame() {
   const now = state.playing && audioCtx ? nowSec() : 0;
-  clearStreakIfNeeded();
-  drawBg(now); drawNotes(now); updateLogic(now);
+  drawBg();
+  drawNotes(now);
+  updateLogic(now);
   requestAnimationFrame(frame);
 }
 
@@ -399,12 +482,15 @@ closeResult.addEventListener('click', () => resultOverlay.classList.add('hidden'
 pauseBtn.addEventListener('click', togglePause);
 difficultySelect.addEventListener('change', () => {
   const cfg = diffCfg[difficultySelect.value] || diffCfg.normal;
-  travelMs = cfg.travelMs; judgeWindows = cfg.judge;
+  travelMs = cfg.travelMs;
+  judgeWindows = cfg.judge;
 });
 audioFileInput.addEventListener('change', async (e) => {
-  const file = e.target.files?.[0]; if (!file) return;
+  const file = e.target.files?.[0];
+  if (!file) return;
   audioBuffer = await fileToBuffer(file);
   startBtn.disabled = true;
+  notes = [];
   analysisText.textContent = `已载入：${file.name}\n点击“分析节奏”生成谱面。`;
   stateText.textContent = '待分析';
 });
@@ -413,7 +499,7 @@ window.addEventListener('keyup', onKeyUp);
 
 document.querySelectorAll('.touch-key[data-lane]').forEach((btn) => {
   const lane = Number(btn.dataset.lane);
-  const down = (e) => { e.preventDefault(); handleDown(lane); };
+  const down = (e) => { e.preventDefault(); if (!state.pressed.has(['f','j','k'][lane])) handleDown(lane); };
   const up = (e) => { e.preventDefault(); handleUp(lane); };
   btn.addEventListener('pointerdown', down);
   btn.addEventListener('pointerup', up);
