@@ -10,7 +10,7 @@
     <main class="app">
       <header>
         <h1>Overpass Groove Lab</h1>
-        <p>用音频自动拆谱，做一个更像「节奏天国」的小型可视化音游。</p>
+        <p>自动拆谱 + 灵活玩法（参考节奏天国的“段落感”和“呼应感”）。</p>
       </header>
 
       <section class="panel">
@@ -19,7 +19,15 @@
             <span>音频文件</span>
             <input id="audioFile" type="file" accept="audio/*" />
           </label>
-          <button id="loadDefault">加载仓库里的示例音乐</button>
+          <button id="loadDefault">加载仓库示例音乐</button>
+          <label>
+            难度
+            <select id="difficulty">
+              <option value="easy">轻松</option>
+              <option value="normal" selected>标准</option>
+              <option value="hard">高压</option>
+            </select>
+          </label>
           <button id="analyzeBtn">分析节奏</button>
           <button id="startBtn" disabled>开始演奏</button>
         </div>
@@ -34,10 +42,8 @@
 
         <div class="row hint">
           <p>
-            操作：<kbd>F</kbd> 左轨 / <kbd>J</kbd> 中轨 / <kbd>K</kbd> 右轨。<br />
-            <span class="tap">Tap</span> 普通点按，
-            <span class="hold">Hold</span> 长按到尾，
-            <span class="flick">Flick</span> 快速双击同轨。
+            键位：<kbd>F</kbd> 左 / <kbd>J</kbd> 中 / <kbd>K</kbd> 右。<br />
+            <span class="tap">Tap</span> 点按，<span class="hold">Hold</span> 按住到尾，<span class="flick">Flick</span> 快速双击。
           </p>
         </div>
       </section>
@@ -47,7 +53,7 @@
       </section>
 
       <section class="analysis">
-        <h2>自动拆谱结果</h2>
+        <h2>拆谱结果</h2>
         <pre id="analysisText">尚未分析。</pre>
       </section>
     </main>
