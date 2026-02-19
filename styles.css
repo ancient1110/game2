@@ -27,16 +27,24 @@ header p { margin: 0; color: var(--muted); }
 }
 .row { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: center; }
 button, select, input[type="file"]::file-selector-button {
-  background: #263a66;
-  border: 1px solid #4a67ae;
+  background: linear-gradient(#304a80, #253a66);
+  border: 1px solid #5f83d3;
   color: var(--text);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 0.45rem 0.75rem;
 }
 button:disabled { opacity: .45; }
 .stats { margin-top: .7rem; gap: 1.2rem; }
 .hint { margin-top: .6rem; color: var(--muted); }
-kbd { border: 1px solid #4966af; background: #1b2a4a; border-radius: 5px; padding: 0 .32rem; }
+kbd {
+  border: 1px solid #82a6ff;
+  background: linear-gradient(180deg, #5f7fd6, #37539a);
+  box-shadow: 0 2px 0 #243a70, 0 0 16px #79a6ff33;
+  color: #ecf3ff;
+  border-radius: 6px;
+  padding: 0.04rem 0.4rem;
+  font-weight: 700;
+}
 .tap { color: var(--tap); }
 .hold { color: var(--hold); }
 .flick { color: var(--flick); }
