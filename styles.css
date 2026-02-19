@@ -4,9 +4,10 @@
   --panel: #121a2c;
   --text: #d8e5ff;
   --muted: #90a6d8;
-  --tap: #73f2ff;
-  --hold: #89ff9f;
-  --flick: #ffd166;
+  --perfect: #4dff88;
+  --great: #5cb3ff;
+  --good: #ffaf45;
+  --miss: #ff5a6e;
 }
 * { box-sizing: border-box; }
 body {
@@ -45,9 +46,10 @@ kbd {
   padding: 0.04rem 0.4rem;
   font-weight: 700;
 }
-.tap { color: var(--tap); }
-.hold { color: var(--hold); }
-.flick { color: var(--flick); }
+.perfect { color: var(--perfect); }
+.great { color: var(--great); }
+.good { color: var(--good); }
+.miss { color: var(--miss); }
 .game-wrap {
   margin-top: 1rem;
   border-radius: 14px;
