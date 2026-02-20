@@ -390,6 +390,43 @@ function normalizeDensityLevel(density, bands) {
   return Math.max(0, Math.min(1, (density - bands.low) / span));
 }
 
+function buildTextureProfile(data, sampleRate, intro, end, beat) {
+  if (!data || !sampleRate) return null;
+  const win = 1024;
+  const hop = 512;
+  const values = [];
+  const stepSec = hop / sampleRate;
+  for (let i = 0; i < data.length - win; i += hop) {
+    const t = i / sampleRate;
+    if (t < intro - beat || t > end + beat) continue;
+    let hf = 0;
+    let crossings = 0;
+    let prev = data[i];
+    for (let j = 1; j < win; j++) {
+      const v = data[i + j];
+      hf += Math.abs(v - prev);
+      if ((v >= 0) !== (prev >= 0)) crossings += 1;
+      prev = v;
+    }
+    const hfNorm = hf / win;
+    const zcr = crossings / win;
+    values.push(hfNorm * 0.68 + zcr * 0.32);
+  }
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const low = sorted[Math.floor((sorted.length - 1) * 0.25)] ?? 0;
+  const high = sorted[Math.floor((sorted.length - 1) * 0.8)] ?? (low + 1);
+  return { values, start: intro - beat, stepSec, low, high: Math.max(high, low + 0.001) };
+}
+
+function textureLevelAtTime(profile, t) {
+  if (!profile || !profile.values.length) return 0.5;
+  const idx = Math.max(0, Math.min(profile.values.length - 1, Math.round((t - profile.start) / profile.stepSec)));
+  const v = profile.values[idx] ?? profile.low;
+  const span = Math.max(0.001, profile.high - profile.low);
+  return Math.max(0, Math.min(1, (v - profile.low) / span));
+}
+
 function choosePhraseSpan(sectionRole) {
   if (sectionRole === 'intro' || sectionRole === 'outro') return 2;
   if (sectionRole === 'peak') return 3;
@@ -459,7 +496,7 @@ function placeHoldAccompaniment(chart, hold, laneNextFree, laneHolds, peaks, bea
   }
 }
 
-function buildChart(peaks, duration, diffKey) {
+function buildChart(peaks, duration, diffKey, monoData, sampleRate) {
   const cfg = diffCfg[diffKey] || diffCfg.normal;
   const beat = estimateBeat(peaks);
   const intro = cfg.intro;
@@ -473,6 +510,7 @@ function buildChart(peaks, duration, diffKey) {
   const laneHolds = [[], [], []];
   const sections = detectSections(peaks, intro, safeEnd, beat, downbeatPhase);
   const densityBands = buildDensityBands(peaks, intro, safeEnd, beat);
+  const textureProfile = buildTextureProfile(monoData, sampleRate, intro, safeEnd, beat);
   let noteIdx = 0;
 
   sections.forEach((section) => {
@@ -497,13 +535,17 @@ function buildChart(peaks, duration, diffKey) {
       const strong = isStrongBeatTime(t, beat, downbeatPhase);
       const instantDensity = densityAtTime(peaks, t, beat);
       const densityLevel = normalizeDensityLevel(instantDensity, densityBands);
-      const sectionBias = section.energy === 'high' ? 0.12 : section.energy === 'low' ? -0.15 : 0;
-      const flowLevel = Math.max(0, Math.min(1, densityLevel + sectionBias));
+      const textureLevel = textureLevelAtTime(textureProfile, t);
+      const mixedLevel = densityLevel * 0.58 + textureLevel * 0.42;
+      const sectionBias = section.energy === 'high' ? 0.1 : section.energy === 'low' ? -0.12 : 0;
+      const flowLevel = Math.max(0, Math.min(1, mixedLevel + sectionBias));
       const holdChance = Math.max(0.02, Math.min(0.76, cfg.holdChance * 0.35 + flowLevel * 0.56 - (section.role === 'intro' ? 0.18 : 0)));
       const offbeatChance = Math.max(0, Math.min(0.82, cfg.offbeatChance * 0.3 + flowLevel * 0.62));
       const flickChance = Math.max(0.01, Math.min(0.45, (section.role === 'peak' ? 0.06 : 0.02) + flowLevel * 0.3));
       const mainChance = section.role === 'intro' ? 0.42 + flowLevel * 0.4 : 0.22 + flowLevel * 0.8;
 
+      let primaryPlaced = false;
+      let primaryIsHold = false;
       if (strong || Math.random() < mainChance) {
         if (Math.random() < holdChance && section.role !== 'intro') {
           const holdLen = chooseHoldLen(beat, diffKey);
@@ -518,12 +560,20 @@ function buildChart(peaks, duration, diffKey) {
             started: false,
           };
           const placed = pushLaneNote(chart, hold, laneNextFree, laneHolds, cfg.travelMs);
+          primaryPlaced = placed;
+          primaryIsHold = placed;
           if (placed && cfg.complexityLevel >= 2) {
             placeHoldAccompaniment(chart, hold, laneNextFree, laneHolds, peaks, beat, diffKey, noteIdx, cfg.travelMs);
           }
         } else {
-          pushLaneNote(chart, { id: `n${noteIdx}`, time: t, lane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
+          primaryPlaced = pushLaneNote(chart, { id: `n${noteIdx}`, time: t, lane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
         }
+      }
+
+      const chordChance = Math.max(0, Math.min(0.52, (flowLevel - 0.42) * 0.72 + (strong ? 0.1 : 0)));
+      if (primaryPlaced && !primaryIsHold && cfg.complexityLevel >= 2 && section.role !== 'intro' && Math.random() < chordChance) {
+        const altLane = (lane + (Math.random() < 0.5 ? 1 : 2)) % 3;
+        pushLaneNote(chart, { id: `c${noteIdx}`, time: t, lane: altLane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
       }
 
       if (section.role !== 'intro' && cfg.complexityLevel >= 2 && (strong || flowLevel > 0.6) && Math.random() < offbeatChance) {
@@ -925,12 +975,18 @@ function analyzeCurrentTrack() {
 
   const mono = buildMonoData(audioBuffer);
   const peaks = detectPeaks(mono, audioBuffer.sampleRate);
-  const built = buildChart(peaks, audioBuffer.duration, diff);
+  const built = buildChart(peaks, audioBuffer.duration, diff, mono, audioBuffer.sampleRate);
   notes = built.notes;
   chartEndTime = built.end;
   startBtn.disabled = !notes.length;
 
   const count = notes.reduce((a, n) => ((a[n.type] = (a[n.type] || 0) + 1), a), {});
+  const simult = new Map();
+  notes.forEach((n) => {
+    const key = Math.round(n.time * 1000);
+    simult.set(key, (simult.get(key) || 0) + 1);
+  });
+  const chordMoments = [...simult.values()].filter((v) => v >= 2).length;
   const sectionPlan = (built.sections || []).map((s) => `${s.role}/${s.energy}`).join(' → ');
   analysisText.textContent = [
     `难度: ${diff}`,
@@ -941,6 +997,7 @@ function analyzeCurrentTrack() {
     `谱面结束点: ${built.end.toFixed(1)}s（避免长尾空窗）`,
     `音符: ${notes.length}`,
     `Tap/Hold/Flick = ${count.tap || 0}/${count.hold || 0}/${count.flick || 0}`,
+    `同押时刻(>=2轨同时): ${chordMoments}`,
     '三轨语义: F=低频主拍 / J=中频旋律 / K=高频点缀',
     `段落结构: ${sectionPlan}`,
   ].join('\n');
