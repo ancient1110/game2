@@ -229,6 +229,22 @@ function mutateMotif(base, complexityLevel, varChance) {
   return motif;
 }
 
+function densityAtTime(peaks, t, beat) {
+  return localPeakDensity(peaks, t, Math.max(beat * 1.35, 0.5));
+}
+
+function choosePhraseSpan(sectionRole) {
+  if (sectionRole === 'intro' || sectionRole === 'outro') return 2;
+  if (sectionRole === 'peak') return 3;
+  return 4;
+}
+
+function energyFromDensity(d) {
+  if (d >= 4) return 'high';
+  if (d >= 2) return 'mid';
+  return 'low';
+}
+
 function visualClearanceSec(cfgTravelMs) {
   const diameterPx = 44;
   const travelPx = hitY - spawnY;
@@ -308,17 +324,30 @@ function buildChart(peaks, duration, diffKey) {
 
   sections.forEach((section) => {
     const library = pickMotifLibrary(section.role);
-    const baseMotif = library[Math.floor(rand(0, library.length))];
-    const motif = mutateMotif(baseMotif, cfg.complexityLevel, cfg.motifVarChance);
     const sectionBeatSpan = section.role === 'peak' ? 0.5 : section.role === 'intro' ? 1.0 : 0.75;
     const step = Math.max((beat / cfg.beatSnap) * sectionBeatSpan, 0.14);
+    const phraseSteps = Math.max(3, Math.round((choosePhraseSpan(section.role) * beat) / step));
+
+    let motif = mutateMotif(library[Math.floor(rand(0, library.length))], cfg.complexityLevel, cfg.motifVarChance);
+    let phraseIdx = 0;
     let localStep = 0;
 
     for (let t = section.start; t <= section.end; t += step) {
+      if (localStep > 0 && localStep % phraseSteps === 0) {
+        phraseIdx += 1;
+        const nextBase = library[(Math.floor(rand(0, library.length)) + phraseIdx) % library.length];
+        motif = mutateMotif(nextBase, cfg.complexityLevel, cfg.motifVarChance * 0.9);
+      }
+
       const lane = motif[localStep % motif.length];
       const strong = localStep % 4 === 0;
-      const energyBoost = section.energy === 'high' ? 0.16 : section.energy === 'low' ? -0.1 : 0;
-      const holdChance = Math.max(0.06, Math.min(0.55, cfg.holdChance + energyBoost - (section.role === 'intro' ? 0.12 : 0)));
+      const instantDensity = densityAtTime(peaks, t, beat);
+      const instantEnergy = energyFromDensity(instantDensity);
+      const sectionEnergyBoost = section.energy === 'high' ? 0.14 : section.energy === 'low' ? -0.08 : 0;
+      const instantEnergyBoost = instantEnergy === 'high' ? 0.14 : instantEnergy === 'low' ? -0.2 : 0;
+      const holdChance = Math.max(0.03, Math.min(0.5, cfg.holdChance + sectionEnergyBoost + instantEnergyBoost - (section.role === 'intro' ? 0.12 : 0)));
+      const offbeatChance = Math.max(0, Math.min(0.48, cfg.offbeatChance + (instantEnergy === 'high' ? 0.12 : instantEnergy === 'low' ? -0.2 : 0)));
+      const flickChance = instantEnergy === 'high' ? 0.2 : instantEnergy === 'mid' ? 0.08 : 0.01;
 
       if (Math.random() < holdChance && section.role !== 'intro') {
         const holdLen = chooseHoldLen(beat, diffKey);
@@ -340,12 +369,12 @@ function buildChart(peaks, duration, diffKey) {
         pushLaneNote(chart, { id: `n${noteIdx}`, time: t, lane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
       }
 
-      if (section.role !== 'intro' && cfg.complexityLevel >= 2 && strong && Math.random() < cfg.offbeatChance) {
+      if (section.role !== 'intro' && cfg.complexityLevel >= 2 && strong && Math.random() < offbeatChance) {
         const offLane = (lane + (section.role === 'peak' ? 2 : 1)) % 3;
         pushLaneNote(chart, { id: `o${noteIdx}`, time: t + beat * 0.28, lane: offLane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
       }
 
-      if (cfg.complexityLevel >= 3 && section.role === 'peak' && Math.random() < 0.22) {
+      if (cfg.complexityLevel >= 3 && section.role === 'peak' && Math.random() < flickChance) {
         pushLaneNote(chart, {
           id: `f${noteIdx}`,
           time: t + beat * 0.2,
