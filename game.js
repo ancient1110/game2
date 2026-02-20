@@ -234,7 +234,7 @@ function detectSections(peaks, intro, endTime, beat, downbeatPhase) {
   const total = Math.max(1, endTime - intro);
   const minSectionSec = Math.max(beat * 8, 6.5);
   const maxSections = total < 45 ? 5 : total < 95 ? 6 : 7;
-  const targetSections = Math.max(4, Math.min(maxSections, Math.round(total / 16)));
+  const targetSections = Math.max(4, Math.min(maxSections, Math.round(total / 14)));
   const frames = [];
   const frameSec = Math.max(beat * 2, 1.6);
   const densityWin = Math.max(beat * 2.4, 1.4);
@@ -281,6 +281,16 @@ function detectSections(peaks, intro, endTime, beat, downbeatPhase) {
   }
 
   boundaries.sort((a, b) => a - b);
+  if (boundaries.length < 4) {
+    const need = Math.max(0, targetSections + 1 - boundaries.length);
+    for (let i = 1; i <= need; i++) {
+      const ratio = i / (need + 1);
+      const t = alignToBar(intro + total * ratio, beat, downbeatPhase, 'nearest');
+      if (t > intro + beat * 2 && t < endTime - beat * 2) boundaries.push(t);
+    }
+    boundaries.sort((a, b) => a - b);
+  }
+
   for (let i = boundaries.length - 1; i > 0; i--) {
     if (boundaries[i] - boundaries[i - 1] < minSectionSec) {
       boundaries.splice(i, 1);
@@ -296,14 +306,19 @@ function detectSections(peaks, intro, endTime, beat, downbeatPhase) {
     sections.push({ index: i, start, end, density, role: 'main', energy: 'mid' });
   }
 
-  const top = [...sections].sort((a, b) => b.density - a.density)[0];
+  const rankedDensity = sections.map((s) => s.density).sort((a, b) => a - b);
+  const lowBar = rankedDensity[Math.floor((rankedDensity.length - 1) * 0.35)] ?? 0;
+  const highBar = rankedDensity[Math.floor((rankedDensity.length - 1) * 0.7)] ?? 0;
+
+  const middle = sections.slice(1, -1);
+  const top = middle.length ? [...middle].sort((a, b) => b.density - a.density)[0] : sections[0];
   sections.forEach((s, i) => {
     if (i === 0) s.role = 'intro';
     else if (i === sections.length - 1) s.role = 'outro';
     else if (top && s.index === top.index) s.role = 'peak';
     else if (i < Math.floor(sections.length / 2)) s.role = 'mainA';
     else s.role = 'mainB';
-    s.energy = s.density >= 8 ? 'high' : s.density >= 4 ? 'mid' : 'low';
+    s.energy = s.density >= highBar ? 'high' : s.density >= lowBar ? 'mid' : 'low';
   });
   return sections;
 }
@@ -782,6 +797,7 @@ function drawBg() {
     ctx.fillStyle = down ? '#335ba8cc' : '#223a6b88';
     ctx.fillRect(laneX[i] - laneWidth / 2, 0, laneWidth, canvas.height);
     ctx.strokeStyle = down ? '#95beff' : '#5d7ec9';
+    ctx.lineWidth = 1;
     ctx.strokeRect(laneX[i] - laneWidth / 2, 0, laneWidth, canvas.height);
   }
 
