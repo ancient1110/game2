@@ -230,7 +230,19 @@ function alignToBar(t, beat, downbeatPhase, dir = 'nearest') {
   return downbeatPhase + idx * bar;
 }
 
-function detectSections(peaks, intro, endTime, beat, downbeatPhase) {
+function localRmsEnergy(data, sampleRate, t, windowSec = 0.9) {
+  if (!data || !sampleRate) return 0;
+  const half = Math.max(1, Math.floor((windowSec * sampleRate) / 2));
+  const center = Math.floor(t * sampleRate);
+  const start = Math.max(0, center - half);
+  const end = Math.min(data.length - 1, center + half);
+  if (end <= start) return 0;
+  let energy = 0;
+  for (let i = start; i <= end; i++) energy += data[i] * data[i];
+  return Math.sqrt(energy / (end - start + 1));
+}
+
+function detectSections(peaks, intro, endTime, beat, downbeatPhase, monoData, sampleRate) {
   const total = Math.max(1, endTime - intro);
   const minSectionSec = Math.max(beat * 8, 6.5);
   const maxSections = total < 45 ? 5 : total < 95 ? 6 : 7;
@@ -241,31 +253,47 @@ function detectSections(peaks, intro, endTime, beat, downbeatPhase) {
 
   for (let t = intro; t <= endTime; t += frameSec) {
     const density = localPeakDensity(peaks, t, densityWin);
-    frames.push({ t, density });
+    const energy = localRmsEnergy(monoData, sampleRate, t, Math.max(beat * 1.8, 1.2));
+    frames.push({ t, density, energy });
   }
-  if (!frames.length) return [{ index: 0, start: intro, end: endTime, density: 0, role: 'main', energy: 'mid' }];
+  if (!frames.length) return [{ index: 0, start: intro, end: endTime, density: 0, spectralEnergy: 0, role: 'main', energy: 'mid', emotion: 'steady' }];
 
   const smooth = frames.map((f, i) => {
     const l = Math.max(0, i - 2);
     const r = Math.min(frames.length - 1, i + 2);
-    let sum = 0;
-    for (let k = l; k <= r; k++) sum += frames[k].density;
-    return { t: f.t, density: sum / (r - l + 1) };
+    let densitySum = 0;
+    let energySum = 0;
+    for (let k = l; k <= r; k++) {
+      densitySum += frames[k].density;
+      energySum += frames[k].energy;
+    }
+    return { t: f.t, density: densitySum / (r - l + 1), energy: energySum / (r - l + 1) };
   });
 
   const candidates = [];
   for (let i = 2; i < smooth.length - 2; i++) {
-    const prev = smooth[i - 1].density;
-    const cur = smooth[i].density;
-    const next = smooth[i + 1].density;
-    const jump = Math.abs(next - prev);
-    if (jump < 0.9) continue;
-    const valley = cur <= prev && cur <= next;
-    const crest = cur >= prev && cur >= next;
+    const prevDensity = smooth[i - 1].density;
+    const curDensity = smooth[i].density;
+    const nextDensity = smooth[i + 1].density;
+    const prevEnergy = smooth[i - 1].energy;
+    const curEnergy = smooth[i].energy;
+    const nextEnergy = smooth[i + 1].energy;
+
+    const densityJump = Math.abs(nextDensity - prevDensity);
+    const energyJump = Math.abs(nextEnergy - prevEnergy) * 24;
+    if (densityJump + energyJump < 1.1) continue;
+
+    const valley = curDensity <= prevDensity && curDensity <= nextDensity;
+    const crest = curDensity >= prevDensity && curDensity >= nextDensity;
+    const energyValley = curEnergy <= prevEnergy && curEnergy <= nextEnergy;
+    const energyCrest = curEnergy >= prevEnergy && curEnergy >= nextEnergy;
     if (!valley && !crest) continue;
+    if (!energyValley && !energyCrest && densityJump < 1.35) continue;
+
+    const directional = (nextDensity - prevDensity) * 0.55 + (nextEnergy - prevEnergy) * 12;
     candidates.push({
       t: smooth[i].t,
-      score: jump + Math.abs(cur - (prev + next) / 2) * 0.7,
+      score: densityJump + energyJump + Math.abs(directional) * 0.45,
     });
   }
 
@@ -303,22 +331,42 @@ function detectSections(peaks, intro, endTime, beat, downbeatPhase) {
     const end = i === boundaries.length - 2 ? endTime : boundaries[i + 1];
     const mid = (start + end) / 2;
     const density = localPeakDensity(peaks, mid, Math.max((end - start) * 0.28, beat * 2));
-    sections.push({ index: i, start, end, density, role: 'main', energy: 'mid' });
+    const spectralEnergy = localRmsEnergy(monoData, sampleRate, mid, Math.max((end - start) * 0.3, beat * 1.8));
+    sections.push({ index: i, start, end, density, spectralEnergy, role: 'main', energy: 'mid', emotion: 'steady' });
   }
 
   const rankedDensity = sections.map((s) => s.density).sort((a, b) => a - b);
   const lowBar = rankedDensity[Math.floor((rankedDensity.length - 1) * 0.35)] ?? 0;
   const highBar = rankedDensity[Math.floor((rankedDensity.length - 1) * 0.7)] ?? 0;
 
+  const energySeries = sections.map((s) => s.spectralEnergy).sort((a, b) => a - b);
+  const energyLow = energySeries[Math.floor((energySeries.length - 1) * 0.33)] ?? 0;
+  const energyHigh = energySeries[Math.floor((energySeries.length - 1) * 0.75)] ?? 0;
+
   const middle = sections.slice(1, -1);
-  const top = middle.length ? [...middle].sort((a, b) => b.density - a.density)[0] : sections[0];
+  const top = middle.length
+    ? [...middle].sort((a, b) => (b.density * 0.62 + b.spectralEnergy * 16) - (a.density * 0.62 + a.spectralEnergy * 16))[0]
+    : sections[0];
+
   sections.forEach((s, i) => {
+    const prev = sections[i - 1];
+    const next = sections[i + 1];
+    const rise = prev ? s.spectralEnergy - prev.spectralEnergy : 0;
+    const fall = next ? s.spectralEnergy - next.spectralEnergy : 0;
+
     if (i === 0) s.role = 'intro';
     else if (i === sections.length - 1) s.role = 'outro';
-    else if (top && s.index === top.index) s.role = 'peak';
-    else if (i < Math.floor(sections.length / 2)) s.role = 'mainA';
-    else s.role = 'mainB';
+
+    else if (top && s.index === top.index) s.role = 'chorus';
+    else if (prev && prev.role === 'chorus' && s.spectralEnergy <= energyLow) s.role = 'bridge';
+    else if (next && top && next.index === top.index && rise > 0.01) s.role = 'preChorus';
+    else if (s.spectralEnergy <= energyLow) s.role = 'verse';
+    else s.role = i < Math.floor(sections.length / 2) ? 'mainA' : 'mainB';
+
     s.energy = s.density >= highBar ? 'high' : s.density >= lowBar ? 'mid' : 'low';
+    if (rise > 0.012 && s.spectralEnergy >= energyHigh) s.emotion = 'lift';
+    else if (fall > 0.012 && s.spectralEnergy >= energyHigh) s.emotion = 'release';
+    else if (s.spectralEnergy <= energyLow) s.emotion = 'calm';
   });
   return sections;
 }
@@ -342,11 +390,26 @@ function pickMotifLibrary(role) {
       [2, 1, 0],
       [1, 0, 2, 1],
     ],
-    peak: [
+    chorus: [
       [0, 1, 2, 1],
       [2, 1, 0, 1],
       [0, 2, 1, 2],
       [1, 0, 1, 2, 1],
+    ],
+    preChorus: [
+      [0, 1, 2],
+      [1, 2, 1, 0],
+      [0, 2, 1],
+    ],
+    verse: [
+      [0, 1],
+      [1, 0, 1],
+      [0, 2],
+    ],
+    bridge: [
+      [2, 1],
+      [1, 2, 0],
+      [0, 1, 0],
     ],
     outro: [
       [1, 0],
@@ -429,7 +492,8 @@ function textureLevelAtTime(profile, t) {
 
 function choosePhraseSpan(sectionRole) {
   if (sectionRole === 'intro' || sectionRole === 'outro') return 2;
-  if (sectionRole === 'peak') return 3;
+  if (sectionRole === 'chorus') return 3;
+  if (sectionRole === 'preChorus') return 2.5;
   return 4;
 }
 
@@ -508,14 +572,14 @@ function buildChart(peaks, duration, diffKey, monoData, sampleRate) {
   const chart = [];
   const laneNextFree = [-1, -1, -1];
   const laneHolds = [[], [], []];
-  const sections = detectSections(peaks, intro, safeEnd, beat, downbeatPhase);
+  const sections = detectSections(peaks, intro, safeEnd, beat, downbeatPhase, monoData, sampleRate);
   const densityBands = buildDensityBands(peaks, intro, safeEnd, beat);
   const textureProfile = buildTextureProfile(monoData, sampleRate, intro, safeEnd, beat);
   let noteIdx = 0;
 
   sections.forEach((section) => {
     const library = pickMotifLibrary(section.role);
-    const sectionBeatSpan = section.role === 'peak' ? 0.5 : section.role === 'intro' ? 1.0 : 0.75;
+    const sectionBeatSpan = section.role === 'chorus' ? 0.5 : section.role === 'intro' ? 1.0 : section.role === 'verse' ? 0.9 : 0.75;
     const baseStep = Math.max((beat / cfg.beatSnap) * sectionBeatSpan, 0.14);
     const phraseSteps = Math.max(3, Math.round((choosePhraseSpan(section.role) * beat) / baseStep));
 
@@ -541,7 +605,7 @@ function buildChart(peaks, duration, diffKey, monoData, sampleRate) {
       const flowLevel = Math.max(0, Math.min(1, mixedLevel + sectionBias));
       const holdChance = Math.max(0.02, Math.min(0.76, cfg.holdChance * 0.35 + flowLevel * 0.56 - (section.role === 'intro' ? 0.18 : 0)));
       const offbeatChance = Math.max(0, Math.min(0.82, cfg.offbeatChance * 0.3 + flowLevel * 0.62));
-      const flickChance = Math.max(0.01, Math.min(0.45, (section.role === 'peak' ? 0.06 : 0.02) + flowLevel * 0.3));
+      const flickChance = Math.max(0.01, Math.min(0.45, (section.role === 'chorus' ? 0.06 : 0.02) + flowLevel * 0.3));
       const mainChance = section.role === 'intro' ? 0.42 + flowLevel * 0.4 : 0.22 + flowLevel * 0.8;
 
       let primaryPlaced = false;
@@ -586,7 +650,7 @@ function buildChart(peaks, duration, diffKey, monoData, sampleRate) {
         pushLaneNote(chart, { id: `b${noteIdx}`, time: t + beat * 0.16, lane: burstLane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
       }
 
-      if (cfg.complexityLevel >= 3 && section.role === 'peak' && Math.random() < flickChance) {
+      if (cfg.complexityLevel >= 3 && section.role === 'chorus' && Math.random() < flickChance) {
         pushLaneNote(chart, {
           id: `f${noteIdx}`,
           time: t + beat * 0.2,
@@ -987,7 +1051,7 @@ function analyzeCurrentTrack() {
     simult.set(key, (simult.get(key) || 0) + 1);
   });
   const chordMoments = [...simult.values()].filter((v) => v >= 2).length;
-  const sectionPlan = (built.sections || []).map((s) => `${s.role}/${s.energy}`).join(' → ');
+  const sectionPlan = (built.sections || []).map((s) => `${s.role}/${s.energy}/${s.emotion || 'steady'}`).join(' → ');
   analysisText.textContent = [
     `难度: ${diff}`,
     `执行/结构: E${cfg.executionLevel} / C${cfg.complexityLevel}`,
