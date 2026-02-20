@@ -223,24 +223,85 @@ function isStrongBeatTime(t, beat, downbeatPhase) {
   return onGrid && beatIdx % 4 === 0;
 }
 
-function detectSections(peaks, intro, endTime, beat) {
+function alignToBar(t, beat, downbeatPhase, dir = 'nearest') {
+  const bar = Math.max(beat * 4, 0.6);
+  const raw = (t - downbeatPhase) / bar;
+  const idx = dir === 'floor' ? Math.floor(raw) : dir === 'ceil' ? Math.ceil(raw) : Math.round(raw);
+  return downbeatPhase + idx * bar;
+}
+
+function detectSections(peaks, intro, endTime, beat, downbeatPhase) {
   const total = Math.max(1, endTime - intro);
-  const sectionCount = total < 45 ? 4 : total < 95 ? 5 : 6;
-  const sectionLen = total / sectionCount;
+  const minSectionSec = Math.max(beat * 8, 6.5);
+  const maxSections = total < 45 ? 5 : total < 95 ? 6 : 7;
+  const targetSections = Math.max(4, Math.min(maxSections, Math.round(total / 16)));
+  const frames = [];
+  const frameSec = Math.max(beat * 2, 1.6);
+  const densityWin = Math.max(beat * 2.4, 1.4);
+
+  for (let t = intro; t <= endTime; t += frameSec) {
+    const density = localPeakDensity(peaks, t, densityWin);
+    frames.push({ t, density });
+  }
+  if (!frames.length) return [{ index: 0, start: intro, end: endTime, density: 0, role: 'main', energy: 'mid' }];
+
+  const smooth = frames.map((f, i) => {
+    const l = Math.max(0, i - 2);
+    const r = Math.min(frames.length - 1, i + 2);
+    let sum = 0;
+    for (let k = l; k <= r; k++) sum += frames[k].density;
+    return { t: f.t, density: sum / (r - l + 1) };
+  });
+
+  const candidates = [];
+  for (let i = 2; i < smooth.length - 2; i++) {
+    const prev = smooth[i - 1].density;
+    const cur = smooth[i].density;
+    const next = smooth[i + 1].density;
+    const jump = Math.abs(next - prev);
+    if (jump < 0.9) continue;
+    const valley = cur <= prev && cur <= next;
+    const crest = cur >= prev && cur >= next;
+    if (!valley && !crest) continue;
+    candidates.push({
+      t: smooth[i].t,
+      score: jump + Math.abs(cur - (prev + next) / 2) * 0.7,
+    });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  const boundaries = [intro, endTime];
+  const neededCuts = Math.max(0, targetSections - 1);
+
+  for (const c of candidates) {
+    if (boundaries.length - 1 >= neededCuts + 1) break;
+    const aligned = Math.max(intro + beat * 2, Math.min(endTime - beat * 2, alignToBar(c.t, beat, downbeatPhase, 'nearest')));
+    if (boundaries.some((x) => Math.abs(x - aligned) < minSectionSec * 0.72)) continue;
+    boundaries.push(aligned);
+  }
+
+  boundaries.sort((a, b) => a - b);
+  for (let i = boundaries.length - 1; i > 0; i--) {
+    if (boundaries[i] - boundaries[i - 1] < minSectionSec) {
+      boundaries.splice(i, 1);
+    }
+  }
+
   const sections = [];
-  for (let i = 0; i < sectionCount; i++) {
-    const start = intro + i * sectionLen;
-    const end = i === sectionCount - 1 ? endTime : intro + (i + 1) * sectionLen;
-    const density = localPeakDensity(peaks, (start + end) / 2, Math.max(beat * 3.6, 1.8));
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const start = i === 0 ? intro : boundaries[i];
+    const end = i === boundaries.length - 2 ? endTime : boundaries[i + 1];
+    const mid = (start + end) / 2;
+    const density = localPeakDensity(peaks, mid, Math.max((end - start) * 0.28, beat * 2));
     sections.push({ index: i, start, end, density, role: 'main', energy: 'mid' });
   }
 
   const top = [...sections].sort((a, b) => b.density - a.density)[0];
-  sections.forEach((s) => {
-    if (s.index === 0) s.role = 'intro';
-    else if (s.index === sections.length - 1) s.role = 'outro';
+  sections.forEach((s, i) => {
+    if (i === 0) s.role = 'intro';
+    else if (i === sections.length - 1) s.role = 'outro';
     else if (top && s.index === top.index) s.role = 'peak';
-    else if (s.index < Math.floor(sections.length / 2)) s.role = 'mainA';
+    else if (i < Math.floor(sections.length / 2)) s.role = 'mainA';
     else s.role = 'mainB';
     s.energy = s.density >= 8 ? 'high' : s.density >= 4 ? 'mid' : 'low';
   });
@@ -377,6 +438,7 @@ function buildChart(peaks, duration, diffKey) {
   const cfg = diffCfg[diffKey] || diffCfg.normal;
   const beat = estimateBeat(peaks);
   const intro = cfg.intro;
+  const downbeatPhase = estimateDownbeatPhase(peaks, beat, intro);
   const lastPeak = peaks.length ? peaks[peaks.length - 1] : duration - 5;
   const endTime = Math.min(duration - 3.8, lastPeak + 6.5);
   const safeEnd = Math.max(intro + 12, endTime);
@@ -384,8 +446,7 @@ function buildChart(peaks, duration, diffKey) {
   const chart = [];
   const laneNextFree = [-1, -1, -1];
   const laneHolds = [[], [], []];
-  const sections = detectSections(peaks, intro, safeEnd, beat);
-  const downbeatPhase = estimateDownbeatPhase(peaks, beat, intro);
+  const sections = detectSections(peaks, intro, safeEnd, beat, downbeatPhase);
   let noteIdx = 0;
 
   sections.forEach((section) => {
