@@ -38,9 +38,39 @@ let chartEndTime = 0;
 const SCORE = { perfect: 1000, great: 700, good: 350, miss: -400 };
 
 const diffCfg = {
-  easy: { intro: 4.8, travelMs: 2100, judge: { perfect: 95, great: 165, good: 240 }, beatSnap: 0.55, holdChance: 0.2 },
-  normal: { intro: 3.6, travelMs: 1820, judge: { perfect: 72, great: 122, good: 185 }, beatSnap: 0.75, holdChance: 0.26 },
-  hard: { intro: 2.2, travelMs: 1550, judge: { perfect: 55, great: 95, good: 145 }, beatSnap: 0.92, holdChance: 0.34 },
+  easy: {
+    intro: 4.8,
+    travelMs: 2100,
+    judge: { perfect: 95, great: 165, good: 240 },
+    beatSnap: 0.55,
+    holdChance: 0.22,
+    executionLevel: 1,
+    complexityLevel: 2,
+    motifVarChance: 0.26,
+    offbeatChance: 0.14,
+  },
+  normal: {
+    intro: 3.6,
+    travelMs: 1820,
+    judge: { perfect: 72, great: 122, good: 185 },
+    beatSnap: 0.75,
+    holdChance: 0.3,
+    executionLevel: 2,
+    complexityLevel: 2,
+    motifVarChance: 0.42,
+    offbeatChance: 0.22,
+  },
+  hard: {
+    intro: 2.2,
+    travelMs: 1550,
+    judge: { perfect: 55, great: 95, good: 145 },
+    beatSnap: 0.92,
+    holdChance: 0.38,
+    executionLevel: 3,
+    complexityLevel: 3,
+    motifVarChance: 0.62,
+    offbeatChance: 0.35,
+  },
 };
 
 const state = {
@@ -128,9 +158,91 @@ function estimateBeat(peaks) {
   return diffs.length ? diffs[Math.floor(diffs.length / 2)] : 0.5;
 }
 
-function pickMode(sectionIdx) {
-  const modes = ['groove', 'call', 'sync', 'hold'];
-  return modes[sectionIdx % modes.length];
+function detectSections(peaks, intro, endTime, beat) {
+  const total = Math.max(1, endTime - intro);
+  const sectionCount = total < 45 ? 4 : total < 95 ? 5 : 6;
+  const sectionLen = total / sectionCount;
+  const sections = [];
+  for (let i = 0; i < sectionCount; i++) {
+    const start = intro + i * sectionLen;
+    const end = i === sectionCount - 1 ? endTime : intro + (i + 1) * sectionLen;
+    const density = localPeakDensity(peaks, (start + end) / 2, Math.max(beat * 3.6, 1.8));
+    sections.push({ index: i, start, end, density, role: 'main', energy: 'mid' });
+  }
+
+  const top = [...sections].sort((a, b) => b.density - a.density)[0];
+  sections.forEach((s) => {
+    if (s.index === 0) s.role = 'intro';
+    else if (s.index === sections.length - 1) s.role = 'outro';
+    else if (top && s.index === top.index) s.role = 'peak';
+    else if (s.index < Math.floor(sections.length / 2)) s.role = 'mainA';
+    else s.role = 'mainB';
+    s.energy = s.density >= 8 ? 'high' : s.density >= 4 ? 'mid' : 'low';
+  });
+  return sections;
+}
+
+function pickMotifLibrary(role) {
+  const lib = {
+    intro: [
+      [0],
+      [0, 2],
+      [0, 1],
+    ],
+    mainA: [
+      [0, 1],
+      [0, 2, 1],
+      [1, 0, 1],
+      [0, 1, 2],
+    ],
+    mainB: [
+      [1, 2, 1],
+      [0, 1, 0, 2],
+      [2, 1, 0],
+      [1, 0, 2, 1],
+    ],
+    peak: [
+      [0, 1, 2, 1],
+      [2, 1, 0, 1],
+      [0, 2, 1, 2],
+      [1, 0, 1, 2, 1],
+    ],
+    outro: [
+      [1, 0],
+      [2, 1],
+      [1],
+    ],
+  };
+  return lib[role] || lib.mainA;
+}
+
+function mutateMotif(base, complexityLevel, varChance) {
+  let motif = [...base];
+  if (Math.random() < varChance) motif = motif.reverse();
+  if (complexityLevel >= 2 && Math.random() < varChance * 0.8) {
+    motif = motif.map((lane, i) => (i % 2 ? (lane + 1) % 3 : lane));
+  }
+  if (complexityLevel >= 3 && motif.length >= 3 && Math.random() < varChance * 0.65) {
+    const dropIdx = 1 + Math.floor(Math.random() * (motif.length - 2));
+    motif = motif.filter((_, idx) => idx !== dropIdx);
+  }
+  return motif;
+}
+
+function densityAtTime(peaks, t, beat) {
+  return localPeakDensity(peaks, t, Math.max(beat * 1.35, 0.5));
+}
+
+function choosePhraseSpan(sectionRole) {
+  if (sectionRole === 'intro' || sectionRole === 'outro') return 2;
+  if (sectionRole === 'peak') return 3;
+  return 4;
+}
+
+function energyFromDensity(d) {
+  if (d >= 4) return 'high';
+  if (d >= 2) return 'mid';
+  return 'low';
 }
 
 function visualClearanceSec(cfgTravelMs) {
@@ -204,58 +316,86 @@ function buildChart(peaks, duration, diffKey) {
   const endTime = Math.min(duration - 3.8, lastPeak + 6.5);
   const safeEnd = Math.max(intro + 12, endTime);
 
-  const timeline = [];
-  for (let t = intro; t <= safeEnd; t += beat / cfg.beatSnap) timeline.push(t);
-
   const chart = [];
   const laneNextFree = [-1, -1, -1];
   const laneHolds = [[], [], []];
+  const sections = detectSections(peaks, intro, safeEnd, beat);
+  let noteIdx = 0;
 
-  timeline.forEach((t, i) => {
-    const section = Math.floor(i / 24);
-    const mode = pickMode(section);
-    const strong = i % 4 === 0;
+  sections.forEach((section) => {
+    const library = pickMotifLibrary(section.role);
+    const sectionBeatSpan = section.role === 'peak' ? 0.5 : section.role === 'intro' ? 1.0 : 0.75;
+    const step = Math.max((beat / cfg.beatSnap) * sectionBeatSpan, 0.14);
+    const phraseSteps = Math.max(3, Math.round((choosePhraseSpan(section.role) * beat) / step));
 
-    if (mode === 'groove') {
-      if (strong) pushLaneNote(chart, { id: `n${i}`, time: t, lane: 0, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
-      else if (i % 2 === 0) pushLaneNote(chart, { id: `n${i}`, time: t, lane: 1, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
-      else if (Math.random() < 0.26) pushLaneNote(chart, { id: `n${i}`, time: t, lane: 2, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
-      return;
-    }
+    let motif = mutateMotif(library[Math.floor(rand(0, library.length))], cfg.complexityLevel, cfg.motifVarChance);
+    let phraseIdx = 0;
+    let localStep = 0;
 
-    if (mode === 'call') {
-      const lane = (Math.floor(i / 2) % 2 === 0) ? 0 : 1;
-      pushLaneNote(chart, { id: `n${i}`, time: t, lane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
-      if (i % 8 === 7 && Math.random() < 0.62) {
-        pushLaneNote(chart, { id: `f${i}`, time: t + beat * 0.35, lane: 2, type: 'flick', tapsNeeded: 2, tapsDone: 0, firstTapAt: null, flickWindow: 0.22, judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
+    for (let t = section.start; t <= section.end; t += step) {
+      if (localStep > 0 && localStep % phraseSteps === 0) {
+        phraseIdx += 1;
+        const nextBase = library[(Math.floor(rand(0, library.length)) + phraseIdx) % library.length];
+        motif = mutateMotif(nextBase, cfg.complexityLevel, cfg.motifVarChance * 0.9);
       }
-      return;
-    }
 
-    if (mode === 'sync') {
-      if (Math.random() < (diffKey === 'hard' ? 0.88 : 0.64)) {
-        pushLaneNote(chart, { id: `n${i}`, time: t, lane: i % 3, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
+      const lane = motif[localStep % motif.length];
+      const strong = localStep % 4 === 0;
+      const instantDensity = densityAtTime(peaks, t, beat);
+      const instantEnergy = energyFromDensity(instantDensity);
+      const sectionEnergyBoost = section.energy === 'high' ? 0.14 : section.energy === 'low' ? -0.08 : 0;
+      const instantEnergyBoost = instantEnergy === 'high' ? 0.14 : instantEnergy === 'low' ? -0.2 : 0;
+      const holdChance = Math.max(0.03, Math.min(0.5, cfg.holdChance + sectionEnergyBoost + instantEnergyBoost - (section.role === 'intro' ? 0.12 : 0)));
+      const offbeatChance = Math.max(0, Math.min(0.48, cfg.offbeatChance + (instantEnergy === 'high' ? 0.12 : instantEnergy === 'low' ? -0.2 : 0)));
+      const flickChance = instantEnergy === 'high' ? 0.2 : instantEnergy === 'mid' ? 0.08 : 0.01;
+
+      if (Math.random() < holdChance && section.role !== 'intro') {
+        const holdLen = chooseHoldLen(beat, diffKey);
+        const hold = {
+          id: `h${noteIdx}`,
+          time: t,
+          lane,
+          type: 'hold',
+          endTime: Math.min(t + holdLen, safeEnd - 0.2),
+          judged: false,
+          missed: false,
+          started: false,
+        };
+        const placed = pushLaneNote(chart, hold, laneNextFree, laneHolds, cfg.travelMs);
+        if (placed && cfg.complexityLevel >= 2) {
+          placeHoldAccompaniment(chart, hold, laneNextFree, laneHolds, peaks, beat, diffKey, noteIdx, cfg.travelMs);
+        }
+      } else {
+        pushLaneNote(chart, { id: `n${noteIdx}`, time: t, lane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
       }
-      if (diffKey !== 'easy' && i % 6 === 0 && Math.random() < 0.54) {
-        pushLaneNote(chart, { id: `c${i}`, time: t + beat * 0.25, lane: 2, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
+
+      if (section.role !== 'intro' && cfg.complexityLevel >= 2 && strong && Math.random() < offbeatChance) {
+        const offLane = (lane + (section.role === 'peak' ? 2 : 1)) % 3;
+        pushLaneNote(chart, { id: `o${noteIdx}`, time: t + beat * 0.28, lane: offLane, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
       }
-      return;
-    }
 
-    if (Math.random() < cfg.holdChance) {
-      const lane = [0, 1, 2][i % 3];
-      const holdLen = chooseHoldLen(beat, diffKey);
-      const hold = { id: `h${i}`, time: t, lane, type: 'hold', endTime: Math.min(t + holdLen, safeEnd - 0.2), judged: false, missed: false, started: false };
-      const placed = pushLaneNote(chart, hold, laneNextFree, laneHolds, cfg.travelMs);
-      if (placed && diffKey !== 'easy') placeHoldAccompaniment(chart, hold, laneNextFree, laneHolds, peaks, beat, diffKey, i, cfg.travelMs);
-      return;
-    }
+      if (cfg.complexityLevel >= 3 && section.role === 'peak' && Math.random() < flickChance) {
+        pushLaneNote(chart, {
+          id: `f${noteIdx}`,
+          time: t + beat * 0.2,
+          lane: (lane + 1) % 3,
+          type: 'flick',
+          tapsNeeded: 2,
+          tapsDone: 0,
+          firstTapAt: null,
+          flickWindow: 0.22,
+          judged: false,
+          missed: false,
+        }, laneNextFree, laneHolds, cfg.travelMs);
+      }
 
-    pushLaneNote(chart, { id: `n${i}`, time: t, lane: i % 3, type: 'tap', judged: false, missed: false }, laneNextFree, laneHolds, cfg.travelMs);
+      localStep += 1;
+      noteIdx += 1;
+    }
   });
 
   chart.sort((a, b) => a.time - b.time);
-  return { notes: chart, intro, beat, end: safeEnd };
+  return { notes: chart, intro, beat, end: safeEnd, sections };
 }
 
 function judgeByOffsetMs(ms) {
@@ -610,16 +750,17 @@ function analyzeCurrentTrack() {
   startBtn.disabled = !notes.length;
 
   const count = notes.reduce((a, n) => ((a[n.type] = (a[n.type] || 0) + 1), a), {});
-  const modePlan = '模式序列: Groove(主拍) → Call(呼应) → Sync(切分) → Hold(长线) 循环';
+  const sectionPlan = (built.sections || []).map((s) => `${s.role}/${s.energy}`).join(' → ');
   analysisText.textContent = [
     `难度: ${diff}`,
+    `执行/结构: E${cfg.executionLevel} / C${cfg.complexityLevel}`,
     `检测峰值: ${peaks.length}`,
     `拍点估计: ${(built.beat || 0.5).toFixed(3)}s`,
     `谱面结束点: ${built.end.toFixed(1)}s（避免长尾空窗）`,
     `音符: ${notes.length}`,
     `Tap/Hold/Flick = ${count.tap || 0}/${count.hold || 0}/${count.flick || 0}`,
     '三轨语义: F=低频主拍 / J=中频旋律 / K=高频点缀',
-    modePlan,
+    `段落结构: ${sectionPlan}`,
   ].join('\n');
 
   stateText.textContent = '待开始';
