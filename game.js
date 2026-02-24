@@ -1467,9 +1467,16 @@ function onKeyDown(e) {
     togglePause();
     return;
   }
-  if (!(key in map) || state.pressed.has(key)) return; handleDown(map[key]);
+  if (!(key in map) || state.pressed.has(key)) return;
+  e.preventDefault();
+  handleDown(map[key]);
 }
-function onKeyUp(e) { const map = { f: 0, j: 1, k: 2 }, key = e.key.toLowerCase(); if (key in map) handleUp(map[key]); }
+function onKeyUp(e) {
+  const map = { f: 0, j: 1, k: 2 }, key = e.key.toLowerCase();
+  if (!(key in map)) return;
+  e.preventDefault();
+  handleUp(map[key]);
+}
 
 function updateLogic(now) {
   if (!state.playing || state.paused) return;
