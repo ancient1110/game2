@@ -195,6 +195,99 @@ button:not(:disabled):active { transform: translateY(0); }
   padding-left: 30px;
 }
 
+
+.game-combo {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.05rem;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-3px) scale(0.96);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.game-combo.is-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.game-combo-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  color: #ffb9a1;
+  text-shadow:
+    0 0 6px rgba(255, 126, 88, 0.32),
+    1px 1px 0 rgba(95, 44, 30, 0.45),
+    -1px 0 0 rgba(255, 220, 190, 0.22);
+  transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+#combo {
+  font-family: 'Exo 2', sans-serif;
+  font-weight: 700;
+  font-size: 1.85rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  background: linear-gradient(155deg, #ffe1c9 5%, #ffb394 30%, #ff8364 55%, #ff614a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow:
+    0 1px 0 rgba(255, 235, 220, 0.28),
+    1px 2px 0 rgba(144, 58, 42, 0.45),
+    -1px 1px 0 rgba(171, 74, 54, 0.4),
+    2px 0 0 rgba(245, 165, 130, 0.2),
+    0 0 12px rgba(255, 120, 90, 0.35);
+  transition: filter 0.18s ease, text-shadow 0.18s ease;
+}
+.game-combo[data-tier="warm"] .game-combo-label {
+  color: #ffd5a8;
+  text-shadow: 0 0 8px rgba(255, 170, 100, 0.4), 1px 1px 0 rgba(110, 55, 28, 0.48);
+}
+.game-combo[data-tier="warm"] #combo {
+  background: linear-gradient(155deg, #ffe9c4 6%, #ffc37f 35%, #ff9a62 62%, #ff7048 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: saturate(1.1) brightness(1.05);
+  text-shadow: 0 0 16px rgba(255, 152, 84, 0.52), 1px 2px 0 rgba(150, 66, 42, 0.5), -1px 1px 0 rgba(188, 84, 59, 0.45);
+}
+.game-combo[data-tier="hot"] .game-combo-label {
+  color: #ffe49f;
+  text-shadow: 0 0 10px rgba(255, 198, 92, 0.52), 1px 1px 0 rgba(108, 72, 25, 0.5);
+}
+.game-combo[data-tier="hot"] #combo {
+  background: linear-gradient(155deg, #fff2bf 4%, #ffd46d 32%, #ffac4d 60%, #ff7f36 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: saturate(1.18) brightness(1.08);
+  text-shadow: 0 0 18px rgba(255, 181, 74, 0.62), 1px 2px 0 rgba(160, 86, 30, 0.56), -1px 1px 0 rgba(220, 120, 50, 0.52);
+}
+.game-combo[data-tier="flare"] .game-combo-label {
+  color: #ffd2ae;
+  text-shadow: 0 0 12px rgba(255, 137, 74, 0.62), 1px 1px 0 rgba(126, 50, 27, 0.55);
+}
+.game-combo[data-tier="flare"] #combo {
+  background: linear-gradient(155deg, #ffe2bf 0%, #ffbb73 28%, #ff8e49 56%, #ff5e2f 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: saturate(1.26) brightness(1.12);
+  text-shadow: 0 0 20px rgba(255, 124, 66, 0.72), 1px 2px 0 rgba(168, 63, 25, 0.62), -1px 1px 0 rgba(228, 95, 42, 0.58);
+}
+.game-combo[data-tier="storm"] .game-combo-label {
+  color: #ffc6b3;
+  text-shadow: 0 0 13px rgba(255, 94, 70, 0.74), 1px 1px 0 rgba(128, 38, 28, 0.6);
+}
+.game-combo[data-tier="storm"] #combo {
+  background: linear-gradient(155deg, #ffd8c0 0%, #ffad72 20%, #ff7f44 48%, #ff4f2b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: saturate(1.34) brightness(1.16);
+  text-shadow: 0 0 24px rgba(255, 92, 56, 0.86), 1px 2px 0 rgba(170, 48, 24, 0.68), -1px 1px 0 rgba(235, 75, 34, 0.65);
+}
+
 /* ─── Progress rail ─── */
 .progress-rail {
   position: absolute;

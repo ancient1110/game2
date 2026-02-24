@@ -7,6 +7,7 @@ const difficultySelect = $('difficulty');
 const analyzeBtn = $('analyzeBtn');
 const startBtn = $('startBtn');
 const comboText = $('combo');
+const gameComboWrap = $('gameComboWrap');
 const scoreText = $('score');
 const judgeText = $('judge');
 const scoreRateText = $('scoreRate');
@@ -50,8 +51,10 @@ let laneBursts = [[], [], []];
 let travelMs = 1800;
 let judgeWindows = { perfect: 72, great: 122, good: 185 };
 let chartEndTime = 0;
+let currentBeatSec = 0.5;
 
-const SCORE = { perfect: 1000, great: 700, good: 350, miss: -400 };
+const SCORE = { miss: -400 };
+const JUDGE_FACTOR = { perfect: 1.0, great: 0.7, good: 0.35 };
 
 const diffCfg = {
   easy:   { intro: 4.8, travelMs: 2100, judge: { perfect: 95,  great: 165, good: 240 } },
@@ -61,7 +64,7 @@ const diffCfg = {
 
 const state = {
   playing: false, paused: false, analyzing: false, startTime: 0,
-  combo: 0, maxCombo: 0, score: 0, possibleScore: 0,
+  combo: 0, maxCombo: 0, score: 0, totalComboScore: 0,
   pressed: new Set(), activeHolds: new Map(),
 };
 
@@ -1268,8 +1271,63 @@ function judgeSecondFlickTap(ms) {
   return null;
 }
 
+function comboMultiplier(combo) {
+  if (combo <= 10) return 1.0;
+  if (combo <= 49) return 1.05;
+  if (combo <= 99) return 1.1;
+  if (combo <= 199) return 1.15;
+  if (combo <= 399) return 1.2;
+  return 1.3;
+}
+
+function scoreBaseByNotePart(note, part = 'tap') {
+  if (!note) return 1000;
+  if (note.type === 'flick') return 2000;
+  if (note.type === 'hold') {
+    if (part === 'holdHead') return 1000;
+    const durBeats = Math.max(0, (note.endTime - note.time) / Math.max(0.01, currentBeatSec));
+    return 1000 + 1000 * durBeats;
+  }
+  return 1000;
+}
+
+function comboTier(combo) {
+  if (combo >= 200) return 'storm';
+  if (combo >= 100) return 'flare';
+  if (combo >= 50) return 'hot';
+  if (combo >= 11) return 'warm';
+  return 'base';
+}
+
+function refreshComboDisplay() {
+  comboText.textContent = String(state.combo);
+  if (!gameComboWrap) return;
+  gameComboWrap.dataset.tier = comboTier(state.combo);
+  gameComboWrap.classList.toggle('is-active', state.playing && !state.paused);
+}
+
+function calculateTotalComboScore() {
+  const events = [];
+  for (const n of notes) {
+    if (n.type === 'hold') {
+      events.push({ time: n.time, id: `${n.id}-head`, note: n, part: 'holdHead' });
+      events.push({ time: n.endTime, id: `${n.id}-tail`, note: n, part: 'holdTail' });
+    } else {
+      events.push({ time: n.time, id: n.id, note: n, part: 'tap' });
+    }
+  }
+  events.sort((a, b) => a.time - b.time || a.id.localeCompare(b.id));
+  let combo = 0;
+  let total = 0;
+  for (const e of events) {
+    combo += 1;
+    total += scoreBaseByNotePart(e.note, e.part) * comboMultiplier(combo);
+  }
+  return Math.round(total);
+}
+
 function updateScoreRate() {
-  scoreRateText.textContent = `${Math.max(0, state.possibleScore > 0 ? (state.score / state.possibleScore) * 100 : 0).toFixed(1)}%`;
+  scoreRateText.textContent = `${Math.max(0, state.totalComboScore > 0 ? (state.score / state.totalComboScore) * 100 : 0).toFixed(1)}%`;
 }
 
 function addFx(lane, color, scale) {
@@ -1283,19 +1341,27 @@ function addFx(lane, color, scale) {
   });
 }
 
-function registerJudge(j, lane, possible = 1000) {
-  state.possibleScore += possible; state.score += SCORE[j.key]; state.combo += 1;
+function registerJudge(j, lane, note, part = 'tap') {
+  state.combo += 1;
+  const mul = comboMultiplier(state.combo);
+  const base = scoreBaseByNotePart(note, part);
+  const gain = Math.round(base * JUDGE_FACTOR[j.key] * mul);
+  state.score += gain;
   state.maxCombo = Math.max(state.maxCombo, state.combo);
-  judgeText.textContent = j.name; addFx(lane, j.color, j.fx);
+  judgeText.textContent = `${j.name} +${gain}`;
+  addFx(lane, j.color, j.fx);
   beep(j.key === 'perfect' ? 960 : j.key === 'great' ? 790 : 630, 0.07, 'triangle', 0.04);
-  comboText.textContent = String(state.combo); scoreText.textContent = String(state.score);
+  refreshComboDisplay();
+  scoreText.textContent = String(state.score);
   updateScoreRate();
 }
 
-function registerMiss(lane, label = '错过', possible = 1000) {
-  state.possibleScore += possible; state.score += SCORE.miss; state.combo = 0;
+function registerMiss(lane, label = '错过') {
+  state.score += SCORE.miss; state.combo = 0;
   judgeText.textContent = label; addFx(lane, '#ff4d6d', 0.85); beep(210, 0.09, 'sawtooth', 0.03);
-  comboText.textContent = '0'; scoreText.textContent = String(state.score); updateScoreRate();
+  refreshComboDisplay();
+  scoreText.textContent = String(state.score);
+  updateScoreRate();
 }
 
 function pendingNote(lane, r = 0.26) {
@@ -1316,20 +1382,20 @@ function onTap(lane) {
   if (flickTarget) {
     const j2 = judgeSecondFlickTap((n - (flickTarget.time + interval)) * 1000);
     flickTarget.judged = true;
-    if (!j2) { registerMiss(lane, '双击错过', 1000); return; }
+    if (!j2) { registerMiss(lane, '双击错过'); return; }
     const worseJudge = rankOrder.indexOf(j2.key) > rankOrder.indexOf(flickTarget.firstJudge.key) ? j2 : flickTarget.firstJudge;
-    registerJudge(worseJudge, lane);
+    registerJudge(worseJudge, lane, flickTarget, 'tap');
     return;
   }
 
   const target = pendingNote(lane);
-  if (!target) return registerMiss(lane, '空击', 0);
+  if (!target) return registerMiss(lane, '空击');
   const j = judgeByOffsetMs((n - target.time) * 1000);
-  if (!j) return registerMiss(lane, '错过', 1000);
+  if (!j) return registerMiss(lane, '错过');
 
   if (target.type === 'hold') {
     target.started = true; state.activeHolds.set(lane, target);
-    registerJudge({ ...j, name: `${j.name}·按住`, fx: j.fx + 0.08 }, lane); return;
+    registerJudge({ ...j, name: `${j.name}·按住`, fx: j.fx + 0.08 }, lane, target, 'holdHead'); return;
   }
   if (target.type === 'flick') {
     target.firstTapAt = n;
@@ -1338,7 +1404,7 @@ function onTap(lane) {
     beep(520, 0.025, 'sine', 0.015);
     return;
   }
-  target.judged = true; registerJudge(j, lane);
+  target.judged = true; registerJudge(j, lane, target, 'tap');
 }
 
 function onRelease(lane) {
@@ -1346,7 +1412,7 @@ function onRelease(lane) {
   if (!h || h.judged) return;
   h.judged = true; state.activeHolds.delete(lane);
   const j = judgeByOffsetMs(Math.abs(nowSec() - h.endTime) * 1000);
-  if (j) registerJudge({ ...j, name: `${j.name}·收尾` }, lane); else registerMiss(lane, '收尾错过', 1000);
+  if (j) registerJudge({ ...j, name: `${j.name}·收尾` }, lane, h, 'holdTail'); else registerMiss(lane, '收尾错过');
 }
 
 function startGame() {
@@ -1355,6 +1421,7 @@ function startGame() {
   notes.forEach(n => { n.judged = n.missed = n.started = false; if (n.type === 'flick') n.tapsDone = 0, n.firstTapAt = null; });
   source = audioCtx.createBufferSource(); source.buffer = audioBuffer; source.connect(audioCtx.destination);
   state.startTime = audioCtx.currentTime + 0.08; state.playing = true; stateText.textContent = '演奏中';
+  refreshComboDisplay();
   resultOverlay.classList.add('hidden'); source.start(state.startTime);
 }
 
@@ -1365,6 +1432,7 @@ function togglePause() {
     return;
   }
   state.paused = !state.paused; stateText.textContent = state.paused ? '暂停' : '演奏中';
+  refreshComboDisplay();
   if (state.paused) audioCtx.suspend(); else audioCtx.resume();
 }
 
@@ -1391,24 +1459,25 @@ function updateLogic(now) {
     if (n.judged) continue;
     const late = now > n.time + 0.28;
     if (n.type === 'hold') {
-      if (!n.started && late) { n.judged = true; n.missed = true; registerMiss(n.lane, '错过', 1000); }
-      else if (n.started && now > n.endTime + 0.22) { n.judged = true; n.missed = true; state.activeHolds.delete(n.lane); registerMiss(n.lane, '收尾错过', 1000); }
+      if (!n.started && late) { n.judged = true; n.missed = true; registerMiss(n.lane, '错过'); }
+      else if (n.started && now > n.endTime + 0.22) { n.judged = true; n.missed = true; state.activeHolds.delete(n.lane); registerMiss(n.lane, '收尾错过'); }
     } else if (n.type === 'flick') {
       const flickTimeout = (judgeWindows.perfect * 4 + judgeWindows.good) / 1000 + 0.05;
-      if (now > n.time + flickTimeout) { n.judged = true; n.missed = true; registerMiss(n.lane, '双击错过', 1000); }
-    } else if (late) { n.judged = true; n.missed = true; registerMiss(n.lane, '错过', 1000); }
+      if (now > n.time + flickTimeout) { n.judged = true; n.missed = true; registerMiss(n.lane, '双击错过'); }
+    } else if (late) { n.judged = true; n.missed = true; registerMiss(n.lane, '错过'); }
   }
   if (now > chartEndTime + 1.0) finishRun();
 }
 
 function finishRun() {
   state.playing = false;
+  refreshComboDisplay();
   if (source) { try { source.stop(); } catch {} source.disconnect(); source = null; }
   for (const n of notes) {
     if (n.type === 'hold' && n.started && !n.judged) { n.judged = true; n.missed = true; }
   }
   stateText.textContent = '结束';
-  const rate = state.possibleScore > 0 ? Math.max(0, (state.score / state.possibleScore) * 100) : 0;
+  const rate = state.totalComboScore > 0 ? Math.max(0, (state.score / state.totalComboScore) * 100) : 0;
 
   if (state.score < 0) {
     negScore.textContent = String(state.score);
@@ -1439,8 +1508,9 @@ function stopPlaybackForReanalyze() {
   }
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
   state.playing = state.paused = false; state.activeHolds.clear(); state.pressed.clear();
+  state.combo = state.maxCombo = state.score = 0;
   laneFx = [[], [], []]; laneBursts = [[], [], []];
-  comboText.textContent = scoreText.textContent = '0';
+  refreshComboDisplay(); scoreText.textContent = '0';
   judgeText.textContent = '--'; scoreRateText.textContent = '0%'; stateText.textContent = '待开始';
   if (!state.analyzing) analysisText.textContent = '';
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
@@ -1455,19 +1525,19 @@ function analyzeCurrentTrack() {
     travelMs = cfg.travelMs; judgeWindows = cfg.judge;
     const mono = buildMonoData(audioBuffer), peaks = detectPeaks(mono, audioBuffer.sampleRate);
     const built = buildChart(peaks, audioBuffer.duration, diff, mono, audioBuffer.sampleRate);
-    notes = built.notes; chartEndTime = built.end; startBtn.disabled = !notes.length;
+    notes = built.notes; chartEndTime = built.end; currentBeatSec = built.beat; state.totalComboScore = calculateTotalComboScore(); startBtn.disabled = !notes.length;
     const count = notes.reduce((a, n) => ((a[n.type] = (a[n.type] || 0) + 1), a), {});
     const bpmStr = (60 / built.beat).toFixed(1);
     currentChartMeta = { difficulty: diff, bpm: bpmStr, title: audioFileInput.files?.[0]?.name?.replace(/\.[^.]+$/, '') || 'untitled' };
-    analysisText.textContent = `难度: ${diff} | 曲速: ${bpmStr} BPM | 总音符: ${notes.length}\n单击: ${count.tap||0}  连击: ${count.flick||0}  长按: ${count.hold||0}`;
+    analysisText.textContent = `难度: ${diff} | 曲速: ${bpmStr} BPM | 总音符: ${notes.length}\n单击: ${count.tap||0}  连击: ${count.flick||0}  长按: ${count.hold||0}\n满连理论总分: ${state.totalComboScore}`;
     stateText.textContent = '待开始'; state.analyzing = false;
   }, 50);
 }
 
 function resetRun() {
-  state.combo = state.maxCombo = state.score = state.possibleScore = 0;
+  state.combo = state.maxCombo = state.score = 0;
   state.activeHolds.clear(); state.pressed.clear(); state.paused = false;
-  comboText.textContent = scoreText.textContent = '0';
+  refreshComboDisplay(); scoreText.textContent = '0';
   judgeText.textContent = '--'; scoreRateText.textContent = '0%';
   laneFx = [[], [], []]; laneBursts = [[], [], []];
 }
@@ -1628,7 +1698,7 @@ let currentChartMeta = {};
 function saveChart() {
   if (!notes.length) { alert('没有谱面可保存，请先分析节奏。'); return; }
   const payload = {
-    version: 1, meta: currentChartMeta, travelMs, judgeWindows, chartEndTime,
+    version: 1, meta: currentChartMeta, travelMs, judgeWindows, chartEndTime, beatSec: currentBeatSec,
     notes: notes.map(n => ({ ...n, judged: false, missed: false, started: false, firstTapAt: null, tapsDone: 0 })),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1645,10 +1715,10 @@ function loadChartFile(file) {
       if (!data.notes || !Array.isArray(data.notes)) throw new Error('无效谱面文件');
       stopPlaybackForReanalyze();
       notes = data.notes.map(n => ({ ...n, judged: false, missed: false, started: false, firstTapAt: null, tapsDone: 0 }));
-      travelMs = data.travelMs || 1820; judgeWindows = data.judgeWindows || diffCfg.normal.judge;
+      travelMs = data.travelMs || 1820; judgeWindows = data.judgeWindows || diffCfg.normal.judge; currentBeatSec = data.beatSec || (data.meta?.bpm ? 60 / Number(data.meta.bpm) : 0.5); state.totalComboScore = calculateTotalComboScore();
       chartEndTime = data.chartEndTime || 0; currentChartMeta = data.meta || {};
       const count = notes.reduce((a, n) => ((a[n.type] = (a[n.type]||0)+1), a), {});
-      analysisText.textContent = `已加载谱面: ${currentChartMeta.title||'未知'}\n难度: ${currentChartMeta.difficulty||'未知'} | BPM: ${currentChartMeta.bpm||'未知'}\n总音符: ${notes.length} | Tap/Hold/Flick = ${count.tap||0}/${count.hold||0}/${count.flick||0}`;
+      analysisText.textContent = `已加载谱面: ${currentChartMeta.title||'未知'}\n难度: ${currentChartMeta.difficulty||'未知'} | BPM: ${currentChartMeta.bpm||'未知'}\n总音符: ${notes.length} | Tap/Hold/Flick = ${count.tap||0}/${count.hold||0}/${count.flick||0}\n满连理论总分: ${state.totalComboScore}`;
       stateText.textContent = '待开始'; startBtn.disabled = false;
     } catch (err) { alert('谱面文件解析失败：' + err.message); }
   };
