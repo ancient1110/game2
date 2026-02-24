@@ -72,6 +72,17 @@ const state = {
 
 const startHint = '按 空格 开始演奏 / 演奏中按 空格 暂停';
 
+let lockedScrollY = 0;
+function setViewportLock(locked) {
+  if (locked) {
+    lockedScrollY = window.scrollY || window.pageYOffset || 0;
+    document.body.classList.add('gameplay-lock');
+    window.scrollTo(0, lockedScrollY);
+    return;
+  }
+  document.body.classList.remove('gameplay-lock');
+}
+
 // ============================================================
 // 3D DEEP-SEA VISUAL SYSTEM
 // ============================================================
@@ -1439,6 +1450,7 @@ function startGame() {
   notes.forEach(n => { n.judged = n.missed = n.started = false; if (n.type === 'flick') n.tapsDone = 0, n.firstTapAt = null; });
   source = audioCtx.createBufferSource(); source.buffer = audioBuffer; source.connect(audioCtx.destination);
   state.startTime = audioCtx.currentTime + 0.08; state.playing = true; stateText.textContent = '演奏中';
+  setViewportLock(true);
   refreshComboDisplay();
   resultOverlay.classList.add('hidden'); source.start(state.startTime);
 }
@@ -1467,9 +1479,16 @@ function onKeyDown(e) {
     togglePause();
     return;
   }
-  if (!(key in map) || state.pressed.has(key)) return; handleDown(map[key]);
+  if (!(key in map) || state.pressed.has(key)) return;
+  e.preventDefault();
+  handleDown(map[key]);
 }
-function onKeyUp(e) { const map = { f: 0, j: 1, k: 2 }, key = e.key.toLowerCase(); if (key in map) handleUp(map[key]); }
+function onKeyUp(e) {
+  const map = { f: 0, j: 1, k: 2 }, key = e.key.toLowerCase();
+  if (!(key in map)) return;
+  e.preventDefault();
+  handleUp(map[key]);
+}
 
 function updateLogic(now) {
   if (!state.playing || state.paused) return;
@@ -1489,6 +1508,7 @@ function updateLogic(now) {
 
 function finishRun() {
   state.playing = false;
+  setViewportLock(false);
   refreshComboDisplay();
   if (source) { try { source.stop(); } catch {} source.disconnect(); source = null; }
   for (const n of notes) {
@@ -1526,6 +1546,7 @@ function stopPlaybackForReanalyze() {
   }
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
   state.playing = state.paused = false; state.activeHolds.clear(); state.pressed.clear();
+  setViewportLock(false);
   state.combo = state.maxCombo = state.score = state.judgedPerfectScore = 0;
   laneFx = [[], [], []]; laneBursts = [[], [], []];
   refreshComboDisplay(); scoreText.textContent = '0';
