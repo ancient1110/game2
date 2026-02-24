@@ -33,7 +33,6 @@
           <button id="startBtn" disabled>开始演奏</button>
         </div>
         <div class="row stats">
-          <div>连击：<strong id="combo">0</strong></div>
           <div>得分：<strong id="score">0</strong></div>
           <div>判定：<strong id="judge">--</strong></div>
           <div>得分率：<strong id="scoreRate">0%</strong></div>
@@ -48,6 +47,10 @@
       </section>
 
       <section class="game-wrap">
+        <div class="game-combo" id="gameComboWrap" aria-live="polite">
+          <span class="game-combo-label">COMBO</span>
+          <strong id="combo">0</strong>
+        </div>
         <div class="progress-rail" aria-hidden="true">
           <div class="progress-fill" id="progressFill"></div>
           <div class="progress-text" id="progressText">0%</div>
