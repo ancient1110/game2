@@ -25,6 +25,11 @@ body {
   overflow-x: hidden;
 }
 
+body.gameplay-lock {
+  overflow-y: hidden;
+  overscroll-behavior-y: none;
+}
+
 /* animated seafloor shimmer overlay */
 body::before {
   content: '';
