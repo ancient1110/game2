@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Overpass Groove Lab</title>
+    <title>Abyssal Groove Lab</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="app">
       <header>
-        <h1>Overpass Groove Lab</h1>
-        <p>自动拆谱 · 空格开始/暂停 · 触屏可玩</p>
+        <h1>Abyssal Groove Lab</h1>
+        <p>单机自动拆谱 · 触屏可玩</p>
       </header>
 
       <section class="panel">
@@ -28,6 +28,8 @@
             </select>
           </label>
           <button id="analyzeBtn">分析节奏</button>
+          <button id="loadChartBtn">加载谱面</button>
+          <input id="chartFileInput" type="file" accept=".json" style="display:none" />
           <button id="startBtn" disabled>开始演奏</button>
         </div>
         <div class="row stats">
@@ -36,6 +38,12 @@
           <div>判定：<strong id="judge">--</strong></div>
           <div>得分率：<strong id="scoreRate">0%</strong></div>
           <div>状态：<strong id="stateText">待机</strong></div>
+          <div class="stats-right">
+            <span class="key-badge note-tap">● 单击<span class="kb-sub">轻触一下</span></span>
+            <span class="key-badge note-flick">● 连击<span class="kb-sub">快速双击</span></span>
+            <span class="key-badge note-hold">● 长按<span class="kb-sub">按住不放</span></span>
+            <pre id="analysisText" class="panel-analysis"></pre>
+          </div>
         </div>
       </section>
 
@@ -52,10 +60,6 @@
         <button class="touch-key" data-lane="1">J</button>
         <button class="touch-key" data-lane="2">K</button>
       </section>
-
-      <section class="analysis">
-        <pre id="analysisText">请先载入音频，然后分析节奏。</pre>
-      </section>
     </main>
 
     <div id="resultOverlay" class="result-overlay hidden">
@@ -67,7 +71,62 @@
           <div>得分率 <strong id="resultRate">0%</strong></div>
           <div>最大连击 <strong id="resultCombo">0</strong></div>
         </div>
-        <button id="closeResult">关闭</button>
+        <div class="result-actions">
+          <button id="saveChartBtn">💾 保存谱面</button>
+          <button id="closeResult">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- S-Rank special overlay -->
+    <div id="sRankOverlay" class="s-rank-overlay hidden">
+      <canvas id="sRankCanvas" class="s-rank-canvas"></canvas>
+      <div class="s-rank-card">
+        <div class="s-rank-crown">♛</div>
+        <div class="s-rank-letter">S</div>
+        <div class="s-rank-subtitle">RHYTHM SOVEREIGN</div>
+        <div class="s-rank-divider"></div>
+        <div class="result-grid s-rank-grid">
+          <div>总分 <strong id="sResultScore">0</strong></div>
+          <div>得分率 <strong id="sResultRate">0%</strong></div>
+          <div>最大连击 <strong id="sResultCombo">0</strong></div>
+        </div>
+        <div class="s-rank-actions">
+          <button id="sSaveChartBtn" class="s-save-btn">💾 保存谱面</button>
+          <button id="sSealClose" class="s-close-btn">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Negative-score Easter-egg overlay -->
+    <div id="negOverlay" class="neg-overlay hidden">
+      <canvas id="negCanvas" class="neg-canvas"></canvas>
+      <div class="neg-card">
+        <div class="neg-glitch-title" data-text="节奏崩坏">节奏崩坏</div>
+        <div class="neg-rank-wrap">
+          <div class="neg-rank-letter" data-text="∅">∅</div>
+        </div>
+        <div class="neg-subtitle">GROOVE&nbsp;DESTROYED</div>
+        <div class="neg-divider"></div>
+        <p class="neg-flavor">恭喜你，Miss 连击已突破物理极限</p>
+        <div class="neg-stat-grid">
+          <div class="neg-stat">
+            <span class="neg-label">得分</span>
+            <strong id="negScore" class="neg-value">0</strong>
+          </div>
+          <div class="neg-stat">
+            <span class="neg-label">得分率</span>
+            <strong class="neg-value">0%</strong>
+          </div>
+          <div class="neg-stat">
+            <span class="neg-label">最大连击</span>
+            <strong id="negCombo" class="neg-value">0</strong>
+          </div>
+        </div>
+        <button id="negClose" class="neg-close-btn">好的，我反思一下</button>
+        <div style="margin-top:0.6rem">
+          <button id="negSaveChartBtn" class="neg-save-btn">💾 保存谱面</button>
+        </div>
       </div>
     </div>
 
