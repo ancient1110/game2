@@ -1459,6 +1459,7 @@ function handleUp(lane) { state.pressed.delete(['f', 'j', 'k'][lane]); onRelease
 
 function onKeyDown(e) {
   const map = { f: 0, j: 1, k: 2 }, key = e.key.toLowerCase();
+  if (key in map) e.preventDefault();
   if (e.code === 'Space') {
     e.preventDefault();
     if (!sRankOverlay.classList.contains('hidden')) { sRankOverlay.classList.add('hidden'); stopSRankCanvas(); return; }
