@@ -83,6 +83,16 @@ function setViewportLock(locked) {
   document.body.classList.remove('gameplay-lock');
 }
 
+function onGameplayWheel(e) {
+  if (!state.playing || state.paused) return;
+  const delta = e.deltaY || 0;
+  if (!delta) return;
+  e.preventDefault();
+  const maxScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  lockedScrollY = Math.min(maxScrollY, Math.max(0, lockedScrollY + delta));
+  window.scrollTo(0, lockedScrollY);
+}
+
 // ============================================================
 // 3D DEEP-SEA VISUAL SYSTEM
 // ============================================================
@@ -1790,6 +1800,7 @@ audioFileInput.addEventListener('change', async (e) => {
 });
 
 window.addEventListener('keydown', onKeyDown); window.addEventListener('keyup', onKeyUp);
+window.addEventListener('wheel', onGameplayWheel, { passive: false });
 document.querySelectorAll('.touch-key[data-lane]').forEach(btn => {
   const lane = Number(btn.dataset.lane);
   btn.addEventListener('pointerdown', e => { e.preventDefault(); if (!state.pressed.has(['f', 'j', 'k'][lane])) handleDown(lane); });
