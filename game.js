@@ -1301,7 +1301,9 @@ function comboTier(combo) {
 
 function refreshComboDisplay() {
   comboText.textContent = String(state.combo);
-  if (gameComboWrap) gameComboWrap.dataset.tier = comboTier(state.combo);
+  if (!gameComboWrap) return;
+  gameComboWrap.dataset.tier = comboTier(state.combo);
+  gameComboWrap.classList.toggle('is-active', state.playing && !state.paused);
 }
 
 function calculateTotalComboScore() {
@@ -1419,6 +1421,7 @@ function startGame() {
   notes.forEach(n => { n.judged = n.missed = n.started = false; if (n.type === 'flick') n.tapsDone = 0, n.firstTapAt = null; });
   source = audioCtx.createBufferSource(); source.buffer = audioBuffer; source.connect(audioCtx.destination);
   state.startTime = audioCtx.currentTime + 0.08; state.playing = true; stateText.textContent = '演奏中';
+  refreshComboDisplay();
   resultOverlay.classList.add('hidden'); source.start(state.startTime);
 }
 
@@ -1429,6 +1432,7 @@ function togglePause() {
     return;
   }
   state.paused = !state.paused; stateText.textContent = state.paused ? '暂停' : '演奏中';
+  refreshComboDisplay();
   if (state.paused) audioCtx.suspend(); else audioCtx.resume();
 }
 
@@ -1467,6 +1471,7 @@ function updateLogic(now) {
 
 function finishRun() {
   state.playing = false;
+  refreshComboDisplay();
   if (source) { try { source.stop(); } catch {} source.disconnect(); source = null; }
   for (const n of notes) {
     if (n.type === 'hold' && n.started && !n.judged) { n.judged = true; n.missed = true; }
