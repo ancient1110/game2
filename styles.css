@@ -181,6 +181,14 @@ button:not(:disabled):active { transform: translateY(0); }
   font-size: 1rem;
 }
 
+/* ================= 增加以下代码 ================= */
+/* 锁定动态数据的宽度，防止文字变长变短导致 flex 换行从而引起屏幕上下抖动 */
+#score { display: inline-block; min-width: 5.5em; }
+#judge { display: inline-block; min-width: 8em; }
+#scoreRate { display: inline-block; min-width: 4.5em; }
+#stateText { display: inline-block; min-width: 3.5em; }
+/* ============================================== */
+
 /* ─── Game wrap ─── */
 .game-wrap {
   border-radius: 14px;
@@ -693,11 +701,11 @@ canvas {
   clip-path: polygon(0 30%, 100% 30%, 100% 50%, 0 50%);
 }
 .neg-glitch-title::before {
-  color: #00ffff; text-shadow: -2px 0 #ff2040;
+  color: #1a0008; text-shadow: -2px 0 #000;
   animation: negGlitchA 3.5s steps(1) infinite;
 }
 .neg-glitch-title::after {
-  color: #ff2040; text-shadow: 2px 0 #00ffff;
+  color: #0a0003; text-shadow: 2px 0 #1a0008;
   clip-path: polygon(0 60%, 100% 60%, 100% 80%, 0 80%);
   animation: negGlitchB 3.5s steps(1) infinite;
 }
@@ -737,7 +745,7 @@ canvas {
 .neg-rank-letter::before {
   content: attr(data-text);
   position: absolute; left: 2px; top: 1px;
-  color: #00ffff;
+  color: #0d0005;
   opacity: 0;
   animation: negRankGhost 4s steps(1) infinite;
 }
@@ -845,4 +853,183 @@ canvas {
   border-color: #cc0030;
   color: #ff4060;
   transform: translateY(-1px);
+}
+
+/* ─── Miracle Rank Overlay (100% perfect score) ─── */
+.miracle-overlay {
+  position: fixed; inset: 0;
+  display: grid; place-items: center;
+  z-index: 65;
+  overflow: hidden;
+}
+.miracle-overlay.hidden { display: none; }
+
+.miracle-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+.miracle-card {
+  position: relative;
+  width: min(500px, 94vw);
+  border-radius: 24px;
+  padding: 2rem 1.8rem 1.6rem;
+  text-align: center;
+  background: radial-gradient(ellipse at 50% 15%, rgba(210,235,255,0.10), rgba(4,12,28,0.97));
+  border: 1px solid rgba(200,225,255,0.30);
+  box-shadow:
+    0 0 0 1px rgba(220,240,255,0.12),
+    0 0 30px rgba(180,220,255,0.14),
+    0 0 70px rgba(140,200,255,0.07),
+    0 36px 90px rgba(0,0,0,0.92),
+    inset 0 1px 0 rgba(255,255,255,0.12);
+  animation: mCardIn 0.8s cubic-bezier(0.16,1,0.3,1) both;
+}
+
+@keyframes mCardIn {
+  from { opacity: 0; transform: scale(0.72) translateY(40px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.miracle-crown {
+  font-size: 2.4rem;
+  line-height: 1;
+  margin-bottom: 0.15rem;
+  color: #e8f4ff;
+  filter: drop-shadow(0 0 12px rgba(180,220,255,0.85));
+  animation: mCrownFloat 3.2s ease-in-out infinite;
+}
+@keyframes mCrownFloat {
+  0%,100% { transform: translateY(0) scale(1); }
+  50%     { transform: translateY(-8px) scale(1.04); }
+}
+
+.miracle-rank-letter {
+  font-family: 'Exo 2', sans-serif;
+  font-size: 7.5rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0em;
+  /* silver-white gradient, sky ascent */
+  background: linear-gradient(
+    170deg,
+    #ffffff   0%,
+    #ddf0ff  18%,
+    #b8d8f8  36%,
+    #e8f6ff  52%,
+    #c2e0ff  68%,
+    #f0f8ff  84%,
+    #ffffff  100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter:
+    drop-shadow(0 0 16px rgba(200,230,255,0.90))
+    drop-shadow(0 0 40px rgba(160,210,255,0.45));
+  animation: mLetterShine 3s linear infinite;
+  margin-bottom: 0.1rem;
+}
+@keyframes mLetterShine {
+  from { background-position: 200% center; }
+  to   { background-position: -200% center; }
+}
+
+.miracle-subtitle {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.80rem;
+  letter-spacing: 0.22em;
+  color: #8ab8d8;
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+  animation: mSubtitleGlow 2.2s ease-in-out infinite alternate;
+}
+@keyframes mSubtitleGlow {
+  from { text-shadow: 0 0 5px rgba(160,210,255,0.15); color: #7aaac8; }
+  to   { text-shadow: 0 0 14px rgba(180,225,255,0.55), 0 0 28px rgba(140,200,255,0.20); color: #b0d4f0; }
+}
+
+.miracle-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #6090b8, #ddf0ff, #6090b8, transparent);
+  margin: 0 0 0.9rem;
+  box-shadow: 0 0 6px rgba(180,225,255,0.25);
+}
+
+.miracle-flavor {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.82rem;
+  color: #6a9cbd;
+  margin-bottom: 1rem;
+  letter-spacing: 0.04em;
+}
+
+.miracle-grid {
+  margin-bottom: 1.2rem !important;
+}
+.miracle-grid div {
+  background: rgba(10,25,50,0.65) !important;
+  border: 1px solid rgba(100,160,210,0.30) !important;
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+.miracle-grid strong {
+  display: block;
+  font-size: 1.1rem;
+  color: #d8eeff !important;
+  margin-top: 0.2rem;
+  text-shadow: 0 0 8px rgba(180,225,255,0.45);
+}
+
+.miracle-actions {
+  display: flex;
+  gap: 0.7rem;
+  justify-content: center;
+}
+
+.m-save-btn {
+  background: linear-gradient(135deg, rgba(10,40,80,0.85), rgba(5,20,45,0.92));
+  border: 1px solid #5090c0;
+  color: #a8d4f0;
+  padding: 0.5rem 1.4rem;
+  border-radius: 8px;
+  font-family: 'Exo 2', sans-serif;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.m-save-btn:hover {
+  box-shadow: 0 0 14px rgba(100,170,230,0.50), 0 0 32px rgba(100,170,230,0.18);
+  border-color: #88c0e0;
+  color: #d8f0ff;
+  transform: translateY(-1px);
+}
+
+.m-close-btn {
+  background: linear-gradient(135deg, rgba(8,25,55,0.80), rgba(4,14,32,0.88));
+  border: 1px solid #3a6890;
+  color: #6a9cbd;
+  padding: 0.5rem 1.8rem;
+  border-radius: 8px;
+  font-family: 'Exo 2', sans-serif;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.m-close-btn:hover {
+  box-shadow: 0 0 12px rgba(80,140,200,0.35);
+  border-color: #5a90c0;
+  color: #a0c8e8;
+  transform: translateY(-1px);
+}
+
+.key-legend-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
 }

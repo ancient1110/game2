@@ -31,6 +31,11 @@
           <button id="loadChartBtn">加载谱面</button>
           <input id="chartFileInput" type="file" accept=".json" style="display:none" />
           <button id="startBtn" disabled>开始演奏</button>
+          <div class="key-legend-group">
+            <span class="key-badge note-tap">● 单击<span class="kb-sub">轻触一下</span></span>
+            <span class="key-badge note-flick">● 连击<span class="kb-sub">快速双击</span></span>
+            <span class="key-badge note-hold">● 长按<span class="kb-sub">按住不放</span></span>
+          </div>
         </div>
         <div class="row stats">
           <div>得分：<strong id="score">0</strong></div>
@@ -38,9 +43,6 @@
           <div>得分率：<strong id="scoreRate">0%</strong></div>
           <div>状态：<strong id="stateText">待机</strong></div>
           <div class="stats-right">
-            <span class="key-badge note-tap">● 单击<span class="kb-sub">轻触一下</span></span>
-            <span class="key-badge note-flick">● 连击<span class="kb-sub">快速双击</span></span>
-            <span class="key-badge note-hold">● 长按<span class="kb-sub">按住不放</span></span>
             <pre id="analysisText" class="panel-analysis"></pre>
           </div>
         </div>
@@ -101,6 +103,27 @@
       </div>
     </div>
 
+    <!-- Miracle-rank overlay (100% score) -->
+    <div id="miracleOverlay" class="miracle-overlay hidden">
+      <canvas id="miracleCanvas" class="miracle-canvas"></canvas>
+      <div class="miracle-card">
+        <div class="miracle-crown">✦</div>
+        <div class="miracle-rank-letter">Ω</div>
+        <div class="miracle-subtitle">MIRACLE &nbsp;·&nbsp; ABYSSAL ASCENT</div>
+        <div class="miracle-divider"></div>
+        <p class="miracle-flavor">冲破一切，直跃苍穹</p>
+        <div class="result-grid miracle-grid">
+          <div>总分 <strong id="mResultScore">0</strong></div>
+          <div>得分率 <strong id="mResultRate">100%</strong></div>
+          <div>最大连击 <strong id="mResultCombo">0</strong></div>
+        </div>
+        <div class="miracle-actions">
+          <button id="mSaveChartBtn" class="m-save-btn">💾 保存谱面</button>
+          <button id="mClose" class="m-close-btn">已铭记此刻，归于深海</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Negative-score Easter-egg overlay -->
     <div id="negOverlay" class="neg-overlay hidden">
       <canvas id="negCanvas" class="neg-canvas"></canvas>
@@ -126,9 +149,9 @@
             <strong id="negCombo" class="neg-value">0</strong>
           </div>
         </div>
-        <button id="negClose" class="neg-close-btn">好的，我反思一下</button>
-        <div style="margin-top:0.6rem">
+        <div class="miracle-actions">
           <button id="negSaveChartBtn" class="neg-save-btn">💾 保存谱面</button>
+          <button id="negClose" class="neg-close-btn">好的，我反思一下</button>
         </div>
       </div>
     </div>

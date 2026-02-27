@@ -38,6 +38,13 @@ const negScore = $('negScore');
 const negCombo = $('negCombo');
 const negClose = $('negClose');
 const negSaveChartBtn = $('negSaveChartBtn');
+const miracleOverlay = $('miracleOverlay');
+const miracleCanvas = $('miracleCanvas');
+const mResultScore = $('mResultScore');
+const mResultRate = $('mResultRate');
+const mResultCombo = $('mResultCombo');
+const mClose = $('mClose');
+const mSaveChartBtn = $('mSaveChartBtn');
 
 const laneX = [250, 500, 750];
 const laneWidth = 170;
@@ -1459,18 +1466,21 @@ function handleUp(lane) { state.pressed.delete(['f', 'j', 'k'][lane]); onRelease
 
 function onKeyDown(e) {
   const map = { f: 0, j: 1, k: 2 }, key = e.key.toLowerCase();
-  if (key in map) e.preventDefault();
   if (e.code === 'Space') {
     e.preventDefault();
     if (!sRankOverlay.classList.contains('hidden')) { sRankOverlay.classList.add('hidden'); stopSRankCanvas(); return; }
+    if (!miracleOverlay.classList.contains('hidden')) { miracleOverlay.classList.add('hidden'); stopMiracleCanvas(); return; }
     if (!negOverlay.classList.contains('hidden'))   { negOverlay.classList.add('hidden');   stopNegCanvas();   return; }
     if (!resultOverlay.classList.contains('hidden')){ resultOverlay.classList.add('hidden');                   return; }
     togglePause();
     return;
   }
-  if (!(key in map) || state.pressed.has(key)) return; handleDown(map[key]);
+  if (key in map) {
+    e.preventDefault();
+    if (!state.pressed.has(key)) handleDown(map[key]);
+  }
 }
-function onKeyUp(e) { const map = { f: 0, j: 1, k: 2 }, key = e.key.toLowerCase(); if (key in map) handleUp(map[key]); }
+function onKeyUp(e) { const map = { f: 0, j: 1, k: 2 }, key = e.key.toLowerCase(); if (key in map) { e.preventDefault(); handleUp(map[key]); } }
 
 function updateLogic(now) {
   if (!state.playing || state.paused) return;
@@ -1503,6 +1513,12 @@ function finishRun() {
     negCombo.textContent = String(state.maxCombo);
     negOverlay.classList.remove('hidden');
     startNegCanvas();
+  } else if (rate >= 100) {
+    mResultScore.textContent = String(state.score);
+    mResultRate.textContent = `${rate.toFixed(1)}%`;
+    mResultCombo.textContent = String(state.maxCombo);
+    miracleOverlay.classList.remove('hidden');
+    startMiracleCanvas();
   } else if (rate >= 95) {
     sResultScore.textContent = String(state.score);
     sResultRate.textContent = `${rate.toFixed(1)}%`;
@@ -1656,20 +1672,7 @@ function startNegCanvas() {
     bg.addColorStop(1,   'rgba(0,0,2,0.98)');
     sCtx.fillStyle = bg; sCtx.fillRect(0, 0, sc.width, sc.height);
 
-    for (let i = 0; i < 8; i++) {
-      const angle = (t * 0.0007 + i * Math.PI / 4) % (Math.PI * 2);
-      const bx = sc.width/2 + Math.cos(angle) * 15, by = sc.height/2 + Math.sin(angle) * 15;
-      const ex = sc.width/2 + Math.cos(angle) * sc.width, ey = sc.height/2 + Math.sin(angle) * sc.height;
-      const beam = sCtx.createLinearGradient(bx, by, ex, ey);
-      const alpha = 0.018 + Math.sin(t * 0.003 + i) * 0.009;
-      beam.addColorStop(0, `rgba(255,0,60,${alpha * 2})`);
-      beam.addColorStop(0.4, `rgba(180,0,40,${alpha})`);
-      beam.addColorStop(1, 'rgba(100,0,20,0)');
-      sCtx.save(); sCtx.lineWidth = 35 + Math.sin(t * 0.004 + i) * 10;
-      sCtx.strokeStyle = beam;
-      sCtx.beginPath(); sCtx.moveTo(bx, by); sCtx.lineTo(ex, ey); sCtx.stroke(); sCtx.restore();
-    }
-
+    // Glitch scanline bars — horizontal interference
     for (const s of shards) {
       s.y += s.speed; s.glitchTimer--;
       if (s.y > sc.height + 10) { s.y = -10; s.x = Math.random() * sc.width; }
@@ -1682,6 +1685,16 @@ function startNegCanvas() {
       sCtx.globalAlpha = s.alpha;
       sCtx.fillStyle = `hsl(${s.hue},100%,55%)`;
       sCtx.fillRect(s.x, s.y, s.w, s.h);
+    }
+
+    // Occasional full-width glitch slice — whole row jumps
+    if (t % 55 < 3) {
+      const sliceY = Math.random() * sc.height;
+      const sliceH = 2 + Math.random() * 10;
+      const shift  = (Math.random() - 0.5) * 60;
+      sCtx.globalAlpha = 0.18 + Math.random() * 0.20;
+      sCtx.fillStyle = '#ff003a';
+      sCtx.fillRect(shift, sliceY, sc.width, sliceH);
     }
     sCtx.globalAlpha = 1;
 
@@ -1711,6 +1724,135 @@ function startNegCanvas() {
   drawNegFrame();
 }
 function stopNegCanvas() { if (negRafId) { cancelAnimationFrame(negRafId); negRafId = null; } }
+
+let miracleRafId = null;
+function startMiracleCanvas() {
+  const sc = miracleCanvas;
+  sc.width = window.innerWidth; sc.height = window.innerHeight;
+  const mCtx = sc.getContext('2d');
+
+  // Rising light shafts — breaking upward from deep sea
+  const shafts = Array.from({ length: 9 }, (_, i) => ({
+    x: (sc.width * (i + 0.5)) / 9 + (Math.random() - 0.5) * 60,
+    width: 18 + Math.random() * 30,
+    speed: 0.0003 + Math.random() * 0.0004,
+    phase: Math.random() * Math.PI * 2,
+    alpha: 0.025 + Math.random() * 0.04,
+  }));
+
+  // Ascending star-motes (silver-white)
+  const motes = Array.from({ length: 100 }, () => ({
+    x: Math.random() * sc.width,
+    y: sc.height + Math.random() * sc.height,
+    vx: (Math.random() - 0.5) * 0.5,
+    vy: -(0.5 + Math.random() * 2.2),
+    r: 0.8 + Math.random() * 2.8,
+    alpha: 0.15 + Math.random() * 0.65,
+    twinkle: Math.random() * Math.PI * 2,
+    twinkleSpeed: 0.04 + Math.random() * 0.08,
+    hue: 195 + Math.random() * 30,   // cold blue-white
+    sat: 20 + Math.random() * 40,
+  }));
+
+  // Radial burst rings from center
+  const rings = Array.from({ length: 4 }, (_, i) => ({
+    phase: (i / 4) * Math.PI * 2,
+    speed: 0.0006 + i * 0.0002,
+  }));
+
+  let t = 0;
+  function drawMFrame() {
+    mCtx.clearRect(0, 0, sc.width, sc.height);
+
+    // Deep-to-sky background: very dark deep blue at bottom → pale silver-white at top
+    const bg = mCtx.createLinearGradient(0, sc.height, 0, 0);
+    bg.addColorStop(0,   'rgba(0,6,18,0.96)');
+    bg.addColorStop(0.4, 'rgba(2,14,36,0.94)');
+    bg.addColorStop(0.75,'rgba(8,22,50,0.90)');
+    bg.addColorStop(1,   'rgba(20,45,80,0.88)');
+    mCtx.fillStyle = bg;
+    mCtx.fillRect(0, 0, sc.width, sc.height);
+
+    // Subtle upward radial halo near top center — the "sky breaking through"
+    const halo = mCtx.createRadialGradient(sc.width/2, 0, 0, sc.width/2, 0, sc.height * 0.7);
+    halo.addColorStop(0,   'rgba(200,230,255,0.07)');
+    halo.addColorStop(0.3, 'rgba(160,210,255,0.04)');
+    halo.addColorStop(1,   'rgba(100,170,240,0)');
+    mCtx.fillStyle = halo;
+    mCtx.fillRect(0, 0, sc.width, sc.height);
+
+    // Rising light shafts
+    for (const s of shafts) {
+      const cx = s.x + Math.sin(t * s.speed * 0.5 + s.phase) * 30;
+      const alpha = s.alpha * (0.7 + 0.3 * Math.sin(t * s.speed + s.phase));
+      const sg = mCtx.createLinearGradient(cx, sc.height * 0.85, cx, 0);
+      sg.addColorStop(0,   `rgba(180,220,255,0)`);
+      sg.addColorStop(0.2, `rgba(200,230,255,${alpha})`);
+      sg.addColorStop(0.6, `rgba(220,240,255,${alpha * 0.7})`);
+      sg.addColorStop(1,   `rgba(240,250,255,0)`);
+      mCtx.save();
+      mCtx.globalAlpha = 1;
+      mCtx.fillStyle = sg;
+      const hw = s.width * (0.8 + 0.2 * Math.sin(t * s.speed * 0.7 + s.phase));
+      mCtx.beginPath();
+      mCtx.moveTo(cx - hw, sc.height * 0.85);
+      mCtx.lineTo(cx + hw, sc.height * 0.85);
+      mCtx.lineTo(cx + hw * 0.3, 0);
+      mCtx.lineTo(cx - hw * 0.3, 0);
+      mCtx.closePath();
+      mCtx.fill();
+      mCtx.restore();
+    }
+
+    // Expanding concentric rings from center (silver shimmer)
+    for (const ring of rings) {
+      const progress = ((t * ring.speed + ring.phase / (Math.PI * 2)) % 1);
+      const r = progress * Math.max(sc.width, sc.height) * 0.7;
+      const alpha = (1 - progress) * 0.055;
+      mCtx.save();
+      mCtx.globalAlpha = alpha;
+      mCtx.strokeStyle = `rgba(210,235,255,1)`;
+      mCtx.lineWidth = 1.5 + (1 - progress) * 2;
+      mCtx.shadowBlur = 8;
+      mCtx.shadowColor = 'rgba(180,220,255,0.5)';
+      mCtx.beginPath();
+      mCtx.arc(sc.width / 2, sc.height * 0.55, r, 0, Math.PI * 2);
+      mCtx.stroke();
+      mCtx.restore();
+    }
+
+    // Ascending star-motes
+    for (const p of motes) {
+      p.x += p.vx; p.y += p.vy; p.twinkle += p.twinkleSpeed;
+      if (p.y < -20) { p.y = sc.height + 10; p.x = Math.random() * sc.width; }
+      const brightness = 0.45 + Math.abs(Math.sin(p.twinkle)) * 0.55;
+      const lum = 75 + brightness * 25;
+      mCtx.save();
+      mCtx.globalAlpha = p.alpha * brightness;
+      mCtx.shadowBlur = 8 + brightness * 6;
+      mCtx.shadowColor = `hsl(${p.hue}, ${p.sat}%, ${lum}%)`;
+      mCtx.fillStyle = `hsl(${p.hue}, ${p.sat}%, ${lum}%)`;
+      mCtx.beginPath();
+      mCtx.arc(p.x, p.y, p.r * (0.7 + brightness * 0.3), 0, Math.PI * 2);
+      mCtx.fill();
+      mCtx.restore();
+    }
+
+    // Occasional full-screen white flash (ascent pulse)
+    const flashPhase = (t * 0.0005) % 1;
+    if (flashPhase < 0.015) {
+      mCtx.globalAlpha = (0.015 - flashPhase) / 0.015 * 0.06;
+      mCtx.fillStyle = '#e8f4ff';
+      mCtx.fillRect(0, 0, sc.width, sc.height);
+      mCtx.globalAlpha = 1;
+    }
+
+    t++; miracleRafId = requestAnimationFrame(drawMFrame);
+  }
+  if (miracleRafId) cancelAnimationFrame(miracleRafId);
+  drawMFrame();
+}
+function stopMiracleCanvas() { if (miracleRafId) { cancelAnimationFrame(miracleRafId); miracleRafId = null; } }
 
 let currentChartMeta = {};
 
@@ -1750,6 +1892,8 @@ closeResult.addEventListener('click', () => resultOverlay.classList.add('hidden'
 saveChartBtn.addEventListener('click', saveChart);
 sSaveChartBtn.addEventListener('click', saveChart);
 sSealClose.addEventListener('click', () => { sRankOverlay.classList.add('hidden'); stopSRankCanvas(); });
+mClose.addEventListener('click', () => { miracleOverlay.classList.add('hidden'); stopMiracleCanvas(); });
+mSaveChartBtn.addEventListener('click', saveChart);
 negClose.addEventListener('click', () => { negOverlay.classList.add('hidden'); stopNegCanvas(); });
 negSaveChartBtn.addEventListener('click', saveChart);
 loadChartBtn.addEventListener('click', () => chartFileInput.click());
