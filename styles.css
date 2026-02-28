@@ -505,6 +505,162 @@ canvas {
 }
 #saveChartBtn:hover { box-shadow: var(--glow1); }
 
+/* ─── Per-Rank result card variations ─── */
+
+/* ── A · 上层海域 · 青绿双色，强光晕，卡片背景最亮 ── */
+.result-card[data-rank="A"] {
+  background: radial-gradient(ellipse at 50% -10%, #004d60 0%, #001830 45%, #000a18 100%);
+  border-color: #00e5ff;
+  box-shadow:
+    0 0 0 1px rgba(0,229,255,0.28),
+    0 0 20px rgba(0,229,255,0.35),
+    0 0 50px rgba(0,229,255,0.18),
+    0 0 90px rgba(0,255,163,0.10),
+    0 24px 64px rgba(0,0,0,0.70);
+}
+.result-card[data-rank="A"] h2 {
+  background: linear-gradient(135deg, #00ffee, #00ffa3);
+  -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 0 20px #00ffe599) drop-shadow(0 0 40px #00ffa355);
+}
+.result-card[data-rank="A"] p { color: #40c8d8; letter-spacing: 0.14em; }
+.result-card[data-rank="A"] .result-grid div {
+  border-color: rgba(0,220,255,0.35);
+  background: rgba(0,40,65,0.75);
+}
+.result-card[data-rank="A"] .result-grid strong {
+  color: #66eeff;
+  text-shadow: 0 0 10px #00e5ff55;
+}
+
+/* ── B · 中层水域 · 纯钢蓝，光晕缩减一档，背景偏暗 ── */
+.result-card[data-rank="B"] {
+  background: radial-gradient(ellipse at 50% -10%, #002244 0%, #000e28 45%, #000610 100%);
+  border-color: #2288cc99;
+  box-shadow:
+    0 0 0 1px rgba(30,140,220,0.16),
+    0 0 14px rgba(20,120,200,0.28),
+    0 0 40px rgba(10,90,170,0.12),
+    0 24px 64px rgba(0,0,0,0.82);
+}
+.result-card[data-rank="B"] h2 {
+  background: linear-gradient(135deg, #44aaff, #1166cc);
+  -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 0 16px #2288ffaa);
+}
+.result-card[data-rank="B"] p { color: #2a6888; letter-spacing: 0.12em; }
+.result-card[data-rank="B"] .result-grid div {
+  border-color: rgba(20,110,200,0.30);
+  background: rgba(0,12,30,0.72);
+}
+.result-card[data-rank="B"] .result-grid strong {
+  color: #55aadd;
+  text-shadow: 0 0 7px #1166cc33;
+}
+
+/* ── C · 暮光带 · 深紫，明显偏暖色相，光晕微弱 ── */
+.result-card[data-rank="C"] {
+  background: radial-gradient(ellipse at 50% -10%, #0e0820 0%, #060118 45%, #02000c 100%);
+  border-color: #5535a8e6;
+  box-shadow:
+    0 0 0 1px rgba(75,45,145,0.14),
+    0 0 14px rgba(65,38,130,0.28),
+    0 24px 64px rgba(0,0,0,0.92);
+}
+.result-card[data-rank="C"] h2 {
+  background: linear-gradient(135deg, #8060c4, #4e259a);
+  -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 0 14px #b090ff99);
+}
+.result-card[data-rank="C"] p { color: #4a3370; letter-spacing: 0.10em; }
+.result-card[data-rank="C"] .result-grid div {
+  border-color: rgba(65,42,125,0.28);
+  background: rgba(3,1,14,0.85);
+}
+.result-card[data-rank="C"] .result-grid strong {
+  color: #6a52a0;
+  text-shadow: 0 0 6px #44288833;
+}
+
+/* ── D · 深渊裂隙 · 去饱和蓝灰，昏暗但轮廓可辨 ── */
+.result-card[data-rank="D"] {
+  background: radial-gradient(circle at 50% 0%, #0c1520, #03080e);
+  border-color: #304c6488;
+  box-shadow:
+    0 0 0 1px rgba(50,80,110,0.16),
+    0 0 7px rgba(30,55,85,0.10),
+    0 24px 64px rgba(0,0,0,0.90);
+}
+.result-card[data-rank="D"] h2 {
+  background: linear-gradient(135deg, #6888a0, #334e62);
+  -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 0 8px #2a4a6222);
+}
+.result-card[data-rank="D"] p { color: #334455; }
+.result-card[data-rank="D"] .result-grid div {
+  border-color: rgba(45,72,100,0.32);
+  background: rgba(5,10,18,0.75);
+}
+.result-card[data-rank="D"] .result-grid strong { color: #556677; }
+
+/* ─── Per-Rank button colors ─── */
+
+/* A · 青绿 */
+.result-card[data-rank="A"] #saveChartBtn,
+.result-card[data-rank="A"] #closeResult {
+  background: linear-gradient(135deg, rgba(0,70,80,0.75), rgba(0,40,55,0.85));
+  border-color: #00d4ee;
+  color: #00eeff;
+}
+.result-card[data-rank="A"] #saveChartBtn:hover,
+.result-card[data-rank="A"] #closeResult:hover {
+  box-shadow: 0 0 14px #00e5ff66, 0 0 30px #00e5ff22;
+  border-color: #00ffee;
+  color: #aaffff;
+}
+
+/* B · 钢蓝 */
+.result-card[data-rank="B"] #saveChartBtn,
+.result-card[data-rank="B"] #closeResult {
+  background: linear-gradient(135deg, rgba(0,40,90,0.75), rgba(0,22,55,0.85));
+  border-color: #2277bb;
+  color: #44aaee;
+}
+.result-card[data-rank="B"] #saveChartBtn:hover,
+.result-card[data-rank="B"] #closeResult:hover {
+  box-shadow: 0 0 12px #2288cc55, 0 0 26px #2288cc1a;
+  border-color: #44aadd;
+  color: #88ccff;
+}
+
+/* C · 暗紫 */
+.result-card[data-rank="C"] #saveChartBtn,
+.result-card[data-rank="C"] #closeResult {
+  background: linear-gradient(135deg, rgba(28,14,58,0.82), rgba(14,6,32,0.90));
+  border-color: #6633bb77;
+  color: #9070cc;
+}
+.result-card[data-rank="C"] #saveChartBtn:hover,
+.result-card[data-rank="C"] #closeResult:hover {
+  box-shadow: 0 0 10px #7744bb33, 0 0 22px #5533aa11;
+  border-color: #8855cc;
+  color: #aa88dd;
+}
+
+/* D · 灰蓝 */
+.result-card[data-rank="D"] #saveChartBtn,
+.result-card[data-rank="D"] #closeResult {
+  background: linear-gradient(135deg, rgba(10,18,28,0.80), rgba(4,8,14,0.88));
+  border-color: #2e4a6055;
+  color: #4a6878;
+}
+.result-card[data-rank="D"] #saveChartBtn:hover,
+.result-card[data-rank="D"] #closeResult:hover {
+  box-shadow: 0 0 8px #2a4a6033;
+  border-color: #405e74;
+  color: #607888;
+}
+
 #loadChartBtn {
   background: linear-gradient(135deg, rgba(60,0,100,0.7), rgba(40,0,80,0.8));
   border-color: var(--accent3);

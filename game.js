@@ -1532,7 +1532,9 @@ function finishRun() {
     else if (rate >= 60) [rank, desc] = ['C', 'Nice Try'];
     resultRank.textContent = rank; resultDesc.textContent = desc;
     resultScore.textContent = String(state.score); resultRate.textContent = `${rate.toFixed(1)}%`;
-    resultCombo.textContent = String(state.maxCombo); resultOverlay.classList.remove('hidden');
+    resultCombo.textContent = String(state.maxCombo);
+    resultOverlay.querySelector('.result-card').dataset.rank = rank;
+    resultOverlay.classList.remove('hidden');
   }
 }
 
